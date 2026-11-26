@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth, signOut } from "@/auth";
 
 /**
@@ -12,9 +13,25 @@ export default async function Home() {
       <header className="shell__header">
         <h1>IELTS Speaking Coach</h1>
         <p className="muted">
-          Phase 1 setup. Scores are AI estimates, not official IELTS results.
+          Scores are AI estimates, not official IELTS results.
         </p>
       </header>
+
+      <section className="card">
+        <h2>Practise</h2>
+        <p className="muted">
+          Part 1, 2 or 3. Record an answer and get a criterion-based estimate
+          with your transcript and corrections.
+        </p>
+        <div className="row">
+          <Link className="button" href="/practice">
+            Start a session
+          </Link>
+          <Link className="button button--quiet" href="/history">
+            History
+          </Link>
+        </div>
+      </section>
 
       <section className="card">
         <h2>Signed in</h2>
@@ -31,19 +48,6 @@ export default async function Home() {
             Sign out
           </button>
         </form>
-      </section>
-
-      {/* TEMPORARY - remove with the health-check route in phase 2. */}
-      <section className="card card--temp">
-        <h2>Temporary database health check</h2>
-        <p className="muted">
-          Writes one row to Neon, reads it back, then deletes it. Delete this
-          card and <code>app/api/health/db/route.ts</code> once phase 2 writes
-          real rows.
-        </p>
-        <a className="button" href="/api/health/db">
-          Run health check
-        </a>
       </section>
     </main>
   );

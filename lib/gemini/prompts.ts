@@ -83,9 +83,20 @@ export function part3Prompt(input: {
   previousTranscript: string;
   avoidTopics: string[];
 }): string {
+  const shared = `Part 3 is an abstract discussion. Move from the personal to the general: society, change over time, advantages and disadvantages, causes and effects. One sentence, no specialist knowledge required.`;
+
+  // A standalone Part 3 session has no previous answer for its first question.
+  if (!input.previousTranscript.trim()) {
+    return `Write the opening question of an IELTS Speaking Part 3 discussion.
+
+${shared} Open on a general subject an adult can discuss without preparation, such as education, work, technology, cities, the environment or family life.
+
+${avoidList(input.avoidTopics)}`;
+  }
+
   return `Write one IELTS Speaking Part 3 follow-up question.
 
-Part 3 is an abstract discussion that grows out of the candidate's own answer. Move from the personal to the general: society, change over time, advantages and disadvantages, causes and effects. One sentence, no specialist knowledge required, and it must not simply repeat the previous question.
+${shared} It must not simply repeat the previous question.
 
 The previous question was: "${input.previousQuestion}"
 

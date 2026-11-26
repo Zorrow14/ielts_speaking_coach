@@ -29,12 +29,6 @@ export async function POST(request: Request) {
   }
 
   const { part, previousQuestion, previousTranscript } = parsed.data;
-  if (part === 3 && !previousTranscript) {
-    return Response.json(
-      { error: "Part 3 questions are built from your previous answer." },
-      { status: 400 },
-    );
-  }
 
   const allowance = await consumeDailyAllowance(userId, "question");
   if (!allowance.allowed) {
