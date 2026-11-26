@@ -29,6 +29,9 @@ export const mistakeCategory = pgEnum("mistake_category", [
   "fluency",
 ]);
 
+/** Routes that consume Gemini quota and are therefore counted against the cap. */
+export const apiRoute = pgEnum("api_route", ["question", "evaluate"]);
+
 export const users = pgTable(
   "users",
   {
@@ -166,6 +169,26 @@ export const vocabNotebook = pgTable(
       .defaultNow(),
   },
   (t) => [index("vocab_user_created_idx").on(t.userId, t.createdAt)],
+);
+
+/**
+ * One row per Gemini-backed request, written before the call so that failed
+ * calls still count - they cost quota too. The daily cap is counted from here
+ * rather than from `answers`, which only records successful evaluations.
+ */
+export const apiRequests = pgTable(
+  "api_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    route: apiRoute("route").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("api_requests_user_created_idx").on(t.userId, t.createdAt)],
 );
 
 export const usersRelations = relations(users, ({ many }) => ({
