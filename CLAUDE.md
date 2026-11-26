@@ -2,11 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: pre-scaffold
+## Status
 
-The directory contains no code yet and is not a git repository. Everything below comes from the project plan document (`IELTS_Speaking_Coach_Project_Plan.md`, plan date 26 Nov 2026), which is the authoritative spec — ask the user for it if it is not in the working directory. The next action in the plan is phase 1: scaffold Next.js, the Drizzle schema, the Neon connection, Auth.js, and a first Vercel deploy.
+Phase 1 code is in place and committed on `master`: Next.js 16 App Router (TypeScript, ESLint, no Tailwind), Drizzle schema with the first migration generated, Auth.js v5 GitHub sign-in with every route protected, a protected home page, and a temporary database health check. Lint, typecheck and build all pass.
 
-Read the plan before making architectural choices; update it when a decision in it changes, and keep this file in sync with what actually exists once code lands.
+Not yet done, because each needs credentials or a dashboard: the migration has not been applied to Neon, and nothing is deployed to Vercel. There is no `.env.local` on this machine, so anything touching the database fails locally until one exists.
+
+`IELTS_Speaking_Coach_Project_Plan.md` (plan date 26 Nov 2026) is the authoritative spec. Read it before making architectural choices; update it when a decision in it changes, and keep this file in sync with what actually exists.
 
 ## What this app is
 
@@ -50,18 +52,31 @@ Gemini's output is validated against a JSON schema before anything is saved; inv
 
 ## Environment variables
 
-`DATABASE_URL`, `GEMINI_API_KEY`, `AUTH_SECRET`, plus the Auth.js provider variables chosen in phase 1. `DATABASE_URL` comes from the Vercel Neon integration. Use a Neon branch — not the production database — when testing migrations or anything that writes.
+See `.env.example` for the full list with comments. Phase 1 needs:
+
+- `DATABASE_URL` — Neon pooled connection string. Use a Neon **branch**, not the production branch, for local work and migrations.
+- `AUTH_SECRET` — generate with `npx auth secret`.
+- `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` — from a GitHub OAuth app. GitHub was chosen as the provider in phase 1.
+- `ALLOWED_EMAILS` — comma-separated allow list. This is the single-user lock and it **fails closed**: empty or unset means nobody can sign in.
+- `GEMINI_API_KEY` — not used until phase 2.
 
 ## Commands
 
-None are verified yet; there is no `package.json`. Once phase 1 is scaffolded these are the expected entry points, and this section should be replaced with the real ones:
+```
+npm run dev          # local dev server
+npm run build        # production build (Turbopack); runs tsc as part of it
+npm run lint         # eslint
+npm run typecheck    # tsc --noEmit
+npm run db:generate  # generate SQL in drizzle/ from schema changes
+npm run db:migrate   # apply pending migrations to the DATABASE_URL target
+npm run db:studio    # drizzle-kit studio, browse the data
+```
 
-```
-npm run dev              # local dev server
-npm run build            # production build
-npx drizzle-kit generate # generate SQL from schema changes
-npx drizzle-kit migrate  # apply migrations to the DATABASE_URL target
-```
+The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build`.
+
+`drizzle.config.ts` loads `.env.local` with `process.loadEnvFile`, so `db:*` commands pick up the same `DATABASE_URL` as the app without a dotenv dependency. **`db:migrate` writes to whatever `DATABASE_URL` points at** — check it is a Neon branch first.
+
+There is a moderate `npm audit` advisory (esbuild, via drizzle-kit's bundled transpiler). It is dev-tooling only and `npm audit fix --force` downgrades drizzle-kit to 0.18, so it is deliberately left alone.
 
 ## Build order
 
@@ -75,6 +90,15 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - Commit after each working step with a clear message.
 - The app must work on mobile browsers, with clear handling of mic permission and failed uploads.
 
+## Where the code lives
+
+- `auth.config.ts` — edge-safe Auth.js config (providers, `/login` page, the `authorized` gate). No database imports; `proxy.ts` uses this.
+- `auth.ts` — full Auth.js config: the `ALLOWED_EMAILS` check, and the `jwt`/`session` callbacks that mirror the account into `users` and carry its id.
+- `proxy.ts` — route protection (Next 16's rename of `middleware.ts`). Everything is private except `/login` and `/api/auth/*`.
+- `lib/db/index.ts` — `getDb()`, a lazily created Drizzle client over Neon HTTP. Lazy so `next build` works without `DATABASE_URL`.
+- `lib/db/schema.ts` — the six tables. `lib/db/users.ts` — `ensureUser()`, the Auth.js-to-Postgres bridge.
+- `app/api/health/db/route.ts` — **temporary** phase 1 health check. Delete it and the dashed card on the home page once phase 2 writes real rows.
+
 ## Current phase
 
-Phase 1: Setup.
+Phase 1: Setup — code complete, awaiting three manual steps (apply the migration to a Neon branch, create the GitHub OAuth app, first Vercel deploy). Do not start phase 2 work (recording, Gemini, `/api/evaluate`) until those pass.
