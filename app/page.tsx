@@ -1,69 +1,50 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+import { auth, signOut } from "@/auth";
 
-export default function Home() {
+/**
+ * Protected home page. Middleware already redirects anonymous visitors to
+ * /login, so a session is expected here; the guard is belt and braces.
+ */
+export default async function Home() {
+  const session = await auth();
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.tsx</code> file.
-          </h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className="shell">
+      <header className="shell__header">
+        <h1>IELTS Speaking Coach</h1>
+        <p className="muted">
+          Phase 1 setup. Scores are AI estimates, not official IELTS results.
+        </p>
+      </header>
+
+      <section className="card">
+        <h2>Signed in</h2>
+        <p>
+          <strong>{session?.user?.email ?? "unknown email"}</strong>
+        </p>
+        <form
+          action={async () => {
+            "use server";
+            await signOut({ redirectTo: "/login" });
+          }}
+        >
+          <button type="submit" className="button button--quiet">
+            Sign out
+          </button>
+        </form>
+      </section>
+
+      {/* TEMPORARY - remove with the health-check route in phase 2. */}
+      <section className="card card--temp">
+        <h2>Temporary database health check</h2>
+        <p className="muted">
+          Writes one row to Neon, reads it back, then deletes it. Delete this
+          card and <code>app/api/health/db/route.ts</code> once phase 2 writes
+          real rows.
+        </p>
+        <a className="button" href="/api/health/db">
+          Run health check
+        </a>
+      </section>
+    </main>
   );
 }
