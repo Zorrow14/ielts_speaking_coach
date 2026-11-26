@@ -4,9 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Phase 1 code is in place and committed on `master`: Next.js 16 App Router (TypeScript, ESLint, no Tailwind), Drizzle schema with the first migration generated, Auth.js v5 GitHub sign-in with every route protected, a protected home page, and a temporary database health check. Lint, typecheck and build all pass.
+Phase 2 code is in place and committed on `master`. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
 
-Not yet done, because each needs credentials or a dashboard: the migration has not been applied to Neon, and nothing is deployed to Vercel. There is no `.env.local` on this machine, so anything touching the database fails locally until one exists.
+- `lib/gemini/` — the only module that calls Gemini, via the `interactions` API with structured JSON output and `store: false`.
+- `POST /api/question` and `POST /api/evaluate`, both authenticated, both counted against a daily cap.
+- A `MediaRecorder` recorder with named errors for each failure mode, a two-minute soft warning and a three-minute hard stop.
+- Practice flows for Parts 1, 2 and 3, a results screen, and a history list that reopens saved feedback.
+
+Lint, typecheck and build all pass. **Nothing has been run against a live Neon or Gemini account from this machine**: there is still no `.env.local`, both migrations (`0000`, `0001`) are unapplied, and nothing is deployed. Every end-to-end claim is therefore unverified.
 
 `IELTS_Speaking_Coach_Project_Plan.md` (plan date 26 Nov 2026) is the authoritative spec. Read it before making architectural choices; update it when a decision in it changes, and keep this file in sync with what actually exists.
 
@@ -74,6 +79,8 @@ npm run db:studio    # drizzle-kit studio, browse the data
 
 The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build`.
 
+Two migrations are pending: `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts). `npm run db:migrate` applies both.
+
 `drizzle.config.ts` loads `.env.local` with `process.loadEnvFile`, so `db:*` commands pick up the same `DATABASE_URL` as the app without a dotenv dependency. **`db:migrate` writes to whatever `DATABASE_URL` points at** — check it is a Neon branch first.
 
 There is a moderate `npm audit` advisory (esbuild, via drizzle-kit's bundled transpiler). It is dev-tooling only and `npm audit fix --force` downgrades drizzle-kit to 0.18, so it is deliberately left alone.
@@ -97,8 +104,15 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `proxy.ts` — route protection (Next 16's rename of `middleware.ts`). Everything is private except `/login` and `/api/auth/*`.
 - `lib/db/index.ts` — `getDb()`, a lazily created Drizzle client over Neon HTTP. Lazy so `next build` works without `DATABASE_URL`.
 - `lib/db/schema.ts` — the six tables. `lib/db/users.ts` — `ensureUser()`, the Auth.js-to-Postgres bridge.
-- `app/api/health/db/route.ts` — **temporary** phase 1 health check. Delete it and the dashed card on the home page once phase 2 writes real rows.
+- `lib/schemas.ts` — zod schemas plus the plainer JSON Schemas sent to Gemini. The two are deliberately different: Gemini ignores constraints like `minLength`, so zod is the real gate.
+- `lib/gemini/` — `index.ts` is the single entry point (both calls, the retry, the key); `prompts.ts` holds the examiner and question prompts.
+- `lib/audio.ts` — recording limits and the browser-MIME to Gemini-MIME mapping, shared by the recorder and `/api/evaluate`.
+- `lib/rate-limit.ts` — the daily cap, counted from `api_requests` per UTC day.
+- `lib/db/queries.ts` — every read and write for sessions, answers, feedback and mistakes, including the atomic `db.batch` save.
+- `components/` — `Recorder.tsx` (microphone and clocks), `PracticeSession.tsx` (the per-part flow), `ResultCard.tsx` (shared by the live result and history).
 
 ## Current phase
 
-Phase 1: Setup — code complete, awaiting three manual steps (apply the migration to a Neon branch, create the GitHub OAuth app, first Vercel deploy). Do not start phase 2 work (recording, Gemini, `/api/evaluate`) until those pass.
+Phase 2: Core speaking loop — code complete, unverified against live services. Blocked on the same manual steps as phase 1 (apply migrations to a Neon branch, create the GitHub OAuth app, deploy) plus a `GEMINI_API_KEY`.
+
+Phase 3 is next and is where the examiner prompt gets its real work: expand the band descriptors in `lib/gemini/prompts.ts`, then check output against real answers for inflation. The prompt there is marked as a first draft on purpose. Do not start phase 4 (charts, vocabulary notebook) before that.
