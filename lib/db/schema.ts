@@ -9,6 +9,7 @@
  */
 import {
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -119,6 +120,21 @@ export const answers = pgTable(
      * daily cap.
      */
     clientToken: text("client_token"),
+    /**
+     * Set when this answer is a second go at the same question.
+     *
+     * Always points at the ORIGINAL attempt, never at another retry, so a
+     * chain of attempts is a flat set rather than a linked list - which keeps
+     * "exclude retries" a single `is null` test instead of a recursive walk.
+     * `lib/db/queries.ts` resolves a retry-of-a-retry back to its root before
+     * inserting.
+     *
+     * Retries are excluded from the progress baseline and moving average:
+     * a second attempt at a question you have already seen and been marked on
+     * is not comparable to a cold answer, and letting it into the trend would
+     * flatter it.
+     */
+    retryOfAnswerId: uuid("retry_of_answer_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -129,6 +145,14 @@ export const answers = pgTable(
     uniqueIndex("answers_user_client_token_idx")
       .on(t.userId, t.clientToken)
       .where(sql`${t.clientToken} is not null`),
+    foreignKey({
+      columns: [t.retryOfAnswerId],
+      foreignColumns: [t.id],
+      name: "answers_retry_of_answer_id_answers_id_fk",
+    }).onDelete("set null"),
+    index("answers_retry_of_idx")
+      .on(t.retryOfAnswerId)
+      .where(sql`${t.retryOfAnswerId} is not null`),
   ],
 );
 

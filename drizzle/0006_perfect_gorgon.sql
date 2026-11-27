@@ -1,0 +1,3 @@
+ALTER TABLE "answers" ADD COLUMN "retry_of_answer_id" uuid;--> statement-breakpoint
+ALTER TABLE "answers" ADD CONSTRAINT "answers_retry_of_answer_id_answers_id_fk" FOREIGN KEY ("retry_of_answer_id") REFERENCES "public"."answers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "answers_retry_of_idx" ON "answers" USING btree ("retry_of_answer_id") WHERE "answers"."retry_of_answer_id" is not null;

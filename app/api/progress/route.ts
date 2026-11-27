@@ -20,6 +20,7 @@ import {
   fixTheseFirst,
   mistakesByCategory,
   promptWindows,
+  retrySeries,
   scoreSeries,
   weekComparison,
   weeklyAverages,
@@ -67,6 +68,7 @@ export async function GET(request: Request) {
       base,
       prompts,
       weeks,
+      retries,
       // One label for the fan-out: the SQLSTATE in the log says which column
       // or table was missing, which is the part worth knowing.
     ] = await dbCall("progressAggregates", () =>
@@ -81,6 +83,7 @@ export async function GET(request: Request) {
         baseline(userId, part),
         promptWindows(userId, part),
         weekComparison(userId, part),
+        retrySeries(userId, part),
       ]),
     );
 
@@ -97,6 +100,8 @@ export async function GET(request: Request) {
         baseline: base,
         promptVersions: prompts,
         weeks,
+        // Their own series: excluded from every aggregate above.
+        retries,
       }),
     );
   } catch (error) {

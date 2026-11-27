@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Recorder, { type Recording } from "./Recorder";
 import ResultCard from "./ResultCard";
+import RetryComparison from "./RetryComparison";
 import { PART2_PREP_MS, PART2_SOFT_LIMIT_MS, formatClock } from "@/lib/audio";
 import type { ResultView } from "@/lib/result-view";
 import type { Part, QuestionResponse } from "@/lib/schemas";
@@ -60,6 +61,8 @@ type Pending = {
   /** Stable across retries: this is what makes the retry idempotent. */
   clientToken: string;
   attempts: number;
+  /** Feature A: the earlier answer this recording is a second go at. */
+  retryOf?: string | null;
 };
 
 export default function PracticeSession({ part }: { part: Part }) {
@@ -74,6 +77,15 @@ export default function PracticeSession({ part }: { part: Part }) {
   const [usage, setUsage] = useState<{ used: number; cap: number } | null>(null);
   const [prepMsLeft, setPrepMsLeft] = useState(PART2_PREP_MS);
   const [pending, setPending] = useState<Pending | null>(null);
+  /**
+   * Feature A. When set, the next recording for this question is a second go
+   * at that answer. A retry does NOT advance the question counter and is not
+   * appended to `answered` - it is another attempt at the same question, not
+   * progress through the session.
+   */
+  const [retryOf, setRetryOf] = useState<string | null>(null);
+  /** The answer id whose two attempts the comparison panel is showing. */
+  const [comparisonFor, setComparisonFor] = useState<string | null>(null);
 
   // The transcript of the previous answer, which Part 3 follow-ups build on.
   const previousRef = useRef<{ question: string; transcript: string } | null>(
@@ -167,6 +179,7 @@ export default function PracticeSession({ part }: { part: Part }) {
       form.append("topic", question.topic);
       form.append("clientToken", job.clientToken);
       if (sessionId) form.append("sessionId", sessionId);
+      if (job.retryOf) form.append("retryOfAnswerId", job.retryOf);
 
       try {
         const response = await fetch("/api/evaluate", {
@@ -204,7 +217,14 @@ export default function PracticeSession({ part }: { part: Part }) {
         };
         setPending(null);
         setLatest(marked);
-        setAnswered((previous) => [...previous, marked]);
+        // A retry replaces nothing and adds nothing: the counter tracks
+        // questions answered, and this is the same question again.
+        if (job.retryOf) {
+          setComparisonFor(marked.answerId);
+        } else {
+          setAnswered((previous) => [...previous, marked]);
+        }
+        setRetryOf(null);
         setStage("result");
       } catch (cause) {
         const timedOut =
@@ -230,9 +250,10 @@ export default function PracticeSession({ part }: { part: Part }) {
         // One token per recording, reused by every retry of it.
         clientToken: crypto.randomUUID(),
         attempts: 0,
+        retryOf,
       });
     },
-    [send],
+    [send, retryOf],
   );
 
   const retry = useCallback(() => {
@@ -255,8 +276,32 @@ export default function PracticeSession({ part }: { part: Part }) {
       return;
     }
     setLatest(null);
+    setRetryOf(null);
+    setComparisonFor(null);
     void loadQuestion();
   }, [isLastQuestion, loadQuestion]);
+
+  /**
+   * Record this same question again.
+   *
+   * The question text is kept exactly as it was - a different question would
+   * make the comparison meaningless - and Part 2 gets its preparation minute
+   * back, because that is part of what is being practised.
+   */
+  const tryAgain = useCallback(() => {
+    if (!latest) return;
+    setRetryOf(latest.answerId);
+    setComparisonFor(null);
+    setLatest(null);
+    setError(null);
+    setPending(null);
+    if (part === 2) {
+      setPrepMsLeft(PART2_PREP_MS);
+      setStage("prep");
+    } else {
+      setStage("ready");
+    }
+  }, [latest, part]);
 
   const busy = stage === "uploading" || stage === "evaluating";
 
@@ -277,6 +322,13 @@ export default function PracticeSession({ part }: { part: Part }) {
 
       {stage === "loading" ? (
         <p role="status">Preparing your question...</p>
+      ) : null}
+
+      {retryOf ? (
+        <p className="notice" role="status">
+          Second attempt at this question. It will be marked and compared with
+          your first, but kept out of your progress trend.
+        </p>
       ) : null}
 
       {question && stage !== "loading" && stage !== "finished" ? (
@@ -379,9 +431,22 @@ export default function PracticeSession({ part }: { part: Part }) {
             wordCount={latest.wordCount}
             view={latest.view}
           />
-          <button type="button" className="button" onClick={next}>
-            {isLastQuestion ? "Finish session" : "Next question"}
-          </button>
+          {comparisonFor ? <RetryComparison answerId={comparisonFor} /> : null}
+
+          <div className="button-row">
+            <button type="button" className="button" onClick={next}>
+              {isLastQuestion ? "Finish session" : "Next question"}
+            </button>
+            {/* A second go at the same question. Kept out of the trend: see
+                EXCLUDE_RETRIES in lib/db/progress.ts. */}
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={tryAgain}
+            >
+              Try this question again
+            </button>
+          </div>
         </>
       ) : null}
 

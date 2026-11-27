@@ -41,6 +41,20 @@ function partFilter(part?: Part) {
   return part ? sql`and s.part = ${part}` : sql``;
 }
 
+/**
+ * Keeps retries out of the trend.
+ *
+ * A second go at a question you have already been marked on is not a cold
+ * answer: you have seen the corrections, so a higher band measures memory as
+ * much as improvement. Letting retries into the moving average or the
+ * baseline would flatter both.
+ *
+ * One shared fragment, used by every score aggregate, so a query added later
+ * cannot quietly forget it. `retrySeries` is the deliberate exception and
+ * says so.
+ */
+const EXCLUDE_RETRIES = sql`and a.retry_of_answer_id is null`;
+
 // --- Score series ----------------------------------------------------------
 
 export type ScorePoint = {
@@ -96,6 +110,7 @@ export async function scoreSeries(
       join sessions s on s.id = a.session_id and s.user_id = ${userId}
     where f.user_id = ${userId}
       ${partFilter(part)}
+      ${EXCLUDE_RETRIES}
     window w as (order by a.created_at rows between 4 preceding and current row)
     order by a.created_at
   `);
@@ -162,6 +177,7 @@ async function periodAverages(
       join sessions s on s.id = a.session_id and s.user_id = ${userId}
     where f.user_id = ${userId}
       ${partFilter(part)}
+      ${EXCLUDE_RETRIES}
     group by ${bucket}
     order by ${bucket}
   `);
@@ -502,6 +518,7 @@ export async function baseline(
         join sessions s on s.id = a.session_id and s.user_id = ${userId}
       where f.user_id = ${userId}
         ${partFilter(part)}
+        ${EXCLUDE_RETRIES}
     )
     select
       'first' as bucket, count(*) as answers, max(total) as total,
@@ -580,6 +597,7 @@ export async function promptWindows(
       join sessions s on s.id = a.session_id and s.user_id = ${userId}
     where f.user_id = ${userId}
       ${partFilter(part)}
+      ${EXCLUDE_RETRIES}
     group by f.prompt_version
     order by min(a.created_at)
   `);
@@ -635,6 +653,7 @@ export async function weekComparison(
       join sessions s on s.id = a.session_id and s.user_id = ${userId}
     where f.user_id = ${userId}
       ${partFilter(part)}
+      ${EXCLUDE_RETRIES}
   `);
 
   const r = (result.rows[0] ?? {}) as Record<string, unknown>;
@@ -658,4 +677,77 @@ export async function weekComparison(
       pronunciation: num(r.last_pronunciation),
     },
   };
+}
+
+// --- Retries as their own series (feature A) -------------------------------
+
+export type RetryPoint = {
+  answerId: string;
+  originalAnswerId: string;
+  createdAt: string;
+  part: number;
+  question: string;
+  /** The retry's bands. */
+  overall: number | null;
+  fluency: number | null;
+  lexical: number | null;
+  grammar: number | null;
+  /** The original attempt's overall, so the pair can be drawn together. */
+  originalOverall: number | null;
+  originalCreatedAt: string;
+};
+
+/**
+ * Every retry with the attempt it was a second go at.
+ *
+ * The deliberate exception to EXCLUDE_RETRIES: this is the one query that
+ * wants them. The progress page draws these as a separate series so an
+ * improvement on a repeated question is visible without being mixed into the
+ * trend line, where it would read as general progress.
+ */
+export async function retrySeries(
+  userId: string,
+  part?: Part,
+): Promise<RetryPoint[]> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    select
+      a.id            as answer_id,
+      a.retry_of_answer_id as original_answer_id,
+      a.created_at    as created_at,
+      a.question      as question,
+      s.part          as part,
+      f.overall       as overall,
+      f.fluency       as fluency,
+      f.lexical       as lexical,
+      f.grammar       as grammar,
+      of.overall      as original_overall,
+      oa.created_at   as original_created_at
+    from feedback f
+      join answers  a  on a.id = f.answer_id  and a.user_id = ${userId}
+      join sessions s  on s.id = a.session_id and s.user_id = ${userId}
+      join answers  oa on oa.id = a.retry_of_answer_id and oa.user_id = ${userId}
+      join feedback of on of.answer_id = oa.id and of.user_id = ${userId}
+    where f.user_id = ${userId}
+      and a.retry_of_answer_id is not null
+      ${partFilter(part)}
+    order by a.created_at
+  `);
+
+  return result.rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      answerId: String(r.answer_id),
+      originalAnswerId: String(r.original_answer_id),
+      createdAt: new Date(r.created_at as string).toISOString(),
+      part: int(r.part),
+      question: String(r.question ?? ""),
+      overall: num(r.overall),
+      fluency: num(r.fluency),
+      lexical: num(r.lexical),
+      grammar: num(r.grammar),
+      originalOverall: num(r.original_overall),
+      originalCreatedAt: new Date(r.original_created_at as string).toISOString(),
+    };
+  });
 }

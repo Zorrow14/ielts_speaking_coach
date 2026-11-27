@@ -802,3 +802,84 @@ button:disabled {
     border: 1px solid CanvasText;
   }
 }
+
+/* --- Retry and comparison (feature A) ----------------------------------- */
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* A standing note, distinct from .alert, which is for things that went wrong. */
+.notice {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.compare__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.compare__table th,
+.compare__table td {
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.compare__table thead th {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/*
+ * Direction is carried by the word next to the number ("higher" / "lower"),
+ * not by the colour. The colour is a second channel for people who read it
+ * quickly, never the only one.
+ */
+.delta--up {
+  color: var(--good, #1a7f52);
+  font-weight: 600;
+}
+
+.delta--down {
+  color: var(--warn, #a4552b);
+  font-weight: 600;
+}
+
+.compare__mistakes {
+  margin-top: 1.25rem;
+}
+
+.compare__mistakes h4 {
+  margin: 0 0 0.25rem;
+}
+
+.compare__mistakes ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.compare__mistakes li {
+  margin-bottom: 0.6rem;
+}
+
+@media (max-width: 480px) {
+  /* Four columns do not fit a phone; let the table scroll rather than wrap
+     the band numbers onto two lines each. */
+  .compare {
+    overflow-x: auto;
+  }
+  .compare__table {
+    min-width: 26rem;
+  }
+}

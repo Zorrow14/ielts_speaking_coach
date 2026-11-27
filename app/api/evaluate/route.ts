@@ -168,6 +168,23 @@ async function handle(request: Request, log: RequestLog): Promise<Response> {
   }
   const clientToken = tokenRaw || null;
 
+  /**
+   * Feature A: a second go at a question already answered and marked.
+   *
+   * Only the id is taken from the client. Ownership is enforced in
+   * rootAttemptId(), which filters by user_id and returns null for an answer
+   * that is not this user's - so a forged id stores null rather than linking
+   * to somebody else's attempt.
+   */
+  const retryRaw = (form.get("retryOfAnswerId") ?? "").toString().trim();
+  if (retryRaw && !UUID.test(retryRaw)) {
+    return errorResponse(log, 400, "Bad request.", {
+      errorKind: "validation",
+      detail: "retryOfAnswerId not a uuid",
+    });
+  }
+  const retryOfAnswerId = retryRaw || null;
+
   // Idempotency: an already-marked recording is returned as-is. Checked before
   // the quota is touched, so a retry is free.
   if (clientToken) {
@@ -276,6 +293,7 @@ async function handle(request: Request, log: RequestLog): Promise<Response> {
         scored,
         provenance,
         clientToken,
+        retryOfAnswerId,
       });
     } catch (cause) {
       // Two identical requests raced and the other one won. Return its result
@@ -314,6 +332,7 @@ async function handle(request: Request, log: RequestLog): Promise<Response> {
         transcript: evaluation.transcript,
         durationSec,
         wordCount: evaluation.transcript.trim().split(/\s+/).length,
+        isRetry: retryOfAnswerId !== null,
         usage: { used: allowance.used, cap: allowance.cap },
       }),
     );

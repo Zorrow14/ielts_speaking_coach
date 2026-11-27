@@ -83,12 +83,24 @@ export async function saveEvaluation(input: {
   provenance: EvaluationProvenance;
   /** Idempotency key from the browser; the unique index rejects a repeat. */
   clientToken?: string | null;
+  /**
+   * The answer this one is a second go at, if any. Resolved to the ROOT
+   * attempt before insert, so retry-of-a-retry still points at the original.
+   */
+  retryOfAnswerId?: string | null;
 }): Promise<string> {
   const db = getDb();
   const answerId = randomUUID();
   const transcript = input.evaluation.transcript.trim();
   const wordCount = transcript ? transcript.split(/\s+/).length : 0;
   const { bands } = input.scored;
+
+  // Flatten the chain: a retry of a retry belongs to the original attempt.
+  // Keeping retry_of_answer_id one level deep makes "exclude retries" a plain
+  // `is null` test everywhere instead of a recursive CTE.
+  const retryOf = input.retryOfAnswerId
+    ? await rootAttemptId(input.userId, input.retryOfAnswerId)
+    : null;
 
   // Typed as BatchItem because the statements target different tables.
   const writes: Array<BatchItem<"pg">> = [
@@ -101,6 +113,7 @@ export async function saveEvaluation(input: {
       durationSec: input.durationSec,
       wordCount,
       clientToken: input.clientToken ?? null,
+      retryOfAnswerId: retryOf,
     }),
     db.insert(feedback).values({
       id: randomUUID(),
@@ -468,4 +481,161 @@ export async function getAnswerByClientToken(
     wordCount: row.wordCount,
     view: rebuildView(row),
   };
+}
+
+// --- Retry and comparison (feature A) --------------------------------------
+
+/**
+ * The original attempt behind an answer id, scoped to the user.
+ *
+ * Returns the id itself when it is already an original. Returns null when the
+ * id is not this user's, which is what stops a retry being attached to
+ * somebody else's answer: the insert then stores null rather than a foreign
+ * row. One level is enough because every retry is stored flat.
+ */
+export async function rootAttemptId(
+  userId: string,
+  answerId: string,
+): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: answers.id, retryOf: answers.retryOfAnswerId })
+    .from(answers)
+    .where(and(eq(answers.id, answerId), eq(answers.userId, userId)))
+    .limit(1);
+  if (!row) return null;
+  return row.retryOf ?? row.id;
+}
+
+export type AttemptScores = {
+  answerId: string;
+  createdAt: string;
+  attempt: number;
+  overall: number | null;
+  fluency: number | null;
+  lexical: number | null;
+  grammar: number | null;
+  pronunciation: number | null;
+  durationSec: number | null;
+  wordCount: number | null;
+  transcript: string;
+  mistakes: Array<{
+    category: string;
+    original: string;
+    correction: string;
+    explanation: string | null;
+  }>;
+};
+
+export type RetryComparison = {
+  question: string;
+  first: AttemptScores;
+  latest: AttemptScores;
+  /** Deltas, latest minus first. Null where either side has no band. */
+  delta: {
+    overall: number | null;
+    fluency: number | null;
+    lexical: number | null;
+    grammar: number | null;
+  };
+  /** In the first attempt, gone from the latest. */
+  fixed: AttemptScores["mistakes"];
+  /** Present in both, matched on the folded original text. */
+  repeated: AttemptScores["mistakes"];
+  /** New in the latest attempt. */
+  introduced: AttemptScores["mistakes"];
+};
+
+/** Case and whitespace folded, matching how repeated mistakes group in SQL. */
+function fold(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Two attempts at one question, side by side.
+ *
+ * `answerId` may be either attempt; the root is resolved first, so the
+ * comparison is the same whichever one the UI happens to be showing. Every
+ * statement filters by user_id.
+ */
+export async function getRetryComparison(
+  userId: string,
+  answerId: string,
+): Promise<RetryComparison | null> {
+  const db = getDb();
+  const rootId = await rootAttemptId(userId, answerId);
+  if (!rootId) return null;
+
+  const result = await db.execute(sql`
+    select
+      a.id, a.question, a.transcript, a.duration_sec, a.word_count,
+      a.created_at, a.retry_of_answer_id,
+      f.overall, f.fluency, f.lexical, f.grammar, f.pronunciation_est,
+      coalesce(
+        (select jsonb_agg(jsonb_build_object(
+            'category', m.category,
+            'original', m.original,
+            'correction', m.correction,
+            'explanation', m.explanation)
+          order by m.created_at)
+         from mistakes m
+         where m.answer_id = a.id and m.user_id = ${userId}),
+        '[]'::jsonb
+      ) as mistakes
+    from answers a
+      join feedback f on f.answer_id = a.id and f.user_id = ${userId}
+    where a.user_id = ${userId}
+      and (a.id = ${rootId} or a.retry_of_answer_id = ${rootId})
+    order by a.created_at
+  `);
+
+  if (result.rows.length < 2) return null;
+
+  const attempts: AttemptScores[] = result.rows.map((row, index) => {
+    const r = row as Record<string, unknown>;
+    return {
+      answerId: String(r.id),
+      createdAt: new Date(r.created_at as string).toISOString(),
+      attempt: index + 1,
+      overall: numOrNull(r.overall),
+      fluency: numOrNull(r.fluency),
+      lexical: numOrNull(r.lexical),
+      grammar: numOrNull(r.grammar),
+      pronunciation: numOrNull(r.pronunciation_est),
+      durationSec: r.duration_sec === null ? null : Number(r.duration_sec),
+      wordCount: r.word_count === null ? null : Number(r.word_count),
+      transcript: String(r.transcript ?? ""),
+      mistakes: (r.mistakes ?? []) as AttemptScores["mistakes"],
+    };
+  });
+
+  const first = attempts[0];
+  const latest = attempts[attempts.length - 1];
+
+  const firstKeys = new Set(first.mistakes.map((m) => fold(m.original)));
+  const latestKeys = new Set(latest.mistakes.map((m) => fold(m.original)));
+
+  const diff = (a: number | null, b: number | null) =>
+    a === null || b === null ? null : Math.round((a - b) * 10) / 10;
+
+  return {
+    question: String((result.rows[0] as Record<string, unknown>).question ?? ""),
+    first,
+    latest,
+    delta: {
+      overall: diff(latest.overall, first.overall),
+      fluency: diff(latest.fluency, first.fluency),
+      lexical: diff(latest.lexical, first.lexical),
+      grammar: diff(latest.grammar, first.grammar),
+    },
+    fixed: first.mistakes.filter((m) => !latestKeys.has(fold(m.original))),
+    repeated: latest.mistakes.filter((m) => firstKeys.has(fold(m.original))),
+    introduced: latest.mistakes.filter((m) => !firstKeys.has(fold(m.original))),
+  };
+}
+
+function numOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

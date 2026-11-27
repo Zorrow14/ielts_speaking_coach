@@ -43,6 +43,13 @@
       "when": 1795776086680,
       "tag": "0005_next_skaar",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795800289567,
+      "tag": "0006_perfect_gorgon",
+      "breakpoints": true
     }
   ]
 }
