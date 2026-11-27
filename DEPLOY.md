@@ -73,19 +73,54 @@ For local work, a second OAuth app with `http://localhost:3000/api/auth/callback
 
 Migrations are plain SQL in `drizzle/`, applied in order by `drizzle-kit`.
 
+> **Run `npm run db:check` against production before every deploy.**
+>
+> This is not optional advice. On 27 Nov 2026 the app was deployed with
+> production five migrations behind the code, and `/api/question`, `/progress`
+> and `/vocab` all returned 500s until it was noticed from a browser console.
+> `db:check` compares the migrations recorded in the target database against
+> the journal in `drizzle/`, prints both lists, and **exits non-zero when the
+> database is behind** — so it also works as a CI gate.
+>
+> ```powershell
+> # Against whatever .env.local points at (normally dev):
+> npm run db:check
+>
+> # Against production, in a throwaway shell. Input is masked, so nothing
+> # lands in your scrollback or a screenshot.
+> $s = Read-Host "Production connection string" -AsSecureString
+> $env:DATABASE_URL = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+>   [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+> npm run db:check
+> Remove-Item Env:\DATABASE_URL
+> ```
+>
+> It prints migration names and counts only — never the connection string, the
+> host, or any part of a credential.
+
 ```bash
 # 1. Confirm what is pending and read the SQL first.
 cat drizzle/00*.sql
 
 # 2. Apply to dev and exercise the app against it.
 npm run db:migrate          # uses DATABASE_URL from .env.local
+npm run db:check            # should now say "in sync"
 
 # 3. Snapshot production before touching it (see section 7).
 
 # 4. Apply to production by pointing DATABASE_URL at it for one command.
-#    Do this in a shell, not by editing .env.local, so dev stays the default.
-DATABASE_URL="<production pooled string>" npx drizzle-kit migrate
+#    Do this in a shell, not by editing .env.local, so dev stays the default,
+#    and from the PROJECT DIRECTORY - drizzle-kit reads drizzle.config.ts from
+#    the current folder and will otherwise tell you no config exists.
+DATABASE_URL="<production pooled string>" npm run db:migrate
+
+# 5. Confirm, and only then deploy.
+DATABASE_URL="<production pooled string>" npm run db:check
 ```
+
+An explicit `DATABASE_URL` in the shell beats `.env.local`: `drizzle.config.ts`
+loads the file with `process.loadEnvFile`, and Node does not overwrite a
+variable that is already set. That is what makes the one-line override safe.
 
 **Read every migration before applying it.** Two in this repo are not safe on
 populated tables:
@@ -108,7 +143,7 @@ In order. Stop at the first failure; each one has a distinct cause.
 
 | # | Check | Pass looks like | If it fails |
 |---|---|---|---|
-| 1 | `curl -i https://<domain>/api/health` | `200` with `{"status":"ok","database":"reachable"}` | `503` means `DATABASE_URL` is wrong or the branch is suspended. A redirect to `vercel.com/sso-api` means Deployment Protection is on. |
+| 1 | `curl -i https://<domain>/api/health` | `200` with `"status":"ok"` and `schema.expected === schema.applied` | `503` with `"status":"schema_behind"` lists the missing migrations — apply them (section 4) rather than redeploying. `503` with `"database":"unreachable"` means `DATABASE_URL` is wrong or the branch is suspended. A redirect to `vercel.com/sso-api` means Deployment Protection is on. |
 | 2 | Security headers on the same response | `content-security-policy`, `x-frame-options`, `strict-transport-security` present; no `x-powered-by` | `next.config.ts` did not deploy; check the build log. |
 | 3 | Open `/` signed out | Redirected to `/login` | Route protection is broken; check `proxy.ts`. |
 | 4 | `curl -i https://<domain>/api/progress` with no session | `401` and a JSON body, **not** an HTML login page | `authorized()` in `auth.config.ts`. |

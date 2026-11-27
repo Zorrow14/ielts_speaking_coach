@@ -135,11 +135,22 @@ describe("every route that touches the database can classify a database failure"
   }
 });
 
-describe("the health check gives nothing away about the connection", () => {
+describe("the health check reports schema drift", () => {
   const source = readFileSync(
     join(ROOT, "app", "api", "health", "route.ts"),
     "utf8",
   );
+
+  it("knows about the migration state, not just connectivity", () => {
+    assert.ok(
+      /schema_behind/.test(source),
+      "a health check that only pings the database says 'ok' while every real route 500s",
+    );
+    assert.ok(
+      /compareSchemaState/.test(source),
+      "the health route should use the shared comparison, not its own",
+    );
+  });
 
   it("names no credential", () => {
     for (const leak of ["DATABASE_URL", "connectionString", "password"]) {

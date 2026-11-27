@@ -5,6 +5,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
+    // Only legal with noEmit; this config emits. scripts/ is not included.
+    "allowImportingTsExtensions": false,
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "ES2022",
