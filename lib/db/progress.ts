@@ -351,8 +351,9 @@ export type RepeatedPair = {
  * correction pair.
  *
  * Grouped on a case-folded, whitespace-trimmed key so "The informations" and
- * "the informations " count as one mistake, while a representative spelling is
- * kept with min() for display.
+ * "the informations " count as one mistake. The spelling shown is the most
+ * frequent variant (mode(), not min()) - the version you actually say most,
+ * rather than whichever one sorts first.
  */
 export async function repeatedPairs(
   userId: string,
@@ -362,10 +363,10 @@ export async function repeatedPairs(
   const db = getDb();
   const result = await db.execute(sql`
     select
-      min(m.category::text)                        as category,
-      min(m.original)                              as original,
-      min(m.correction)                            as correction,
-      min(m.explanation)                           as explanation,
+      mode() within group (order by m.category::text) as category,
+      mode() within group (order by m.original)       as original,
+      mode() within group (order by m.correction)     as correction,
+      mode() within group (order by m.explanation)    as explanation,
       count(*)                                     as total,
       count(*) filter (
         where (m.created_at at time zone ${APP_TIME_ZONE})::date
@@ -421,11 +422,11 @@ export async function fixTheseFirst(
   const db = getDb();
   const result = await db.execute(sql`
     select
-      min(m.category::text) as category,
-      min(m.original)       as original,
-      min(m.correction)     as correction,
-      min(m.explanation)    as explanation,
-      count(*)              as total,
+      mode() within group (order by m.category::text) as category,
+      mode() within group (order by m.original)       as original,
+      mode() within group (order by m.correction)     as correction,
+      mode() within group (order by m.explanation)    as explanation,
+      count(*)                                        as total,
       (array_agg(m.answer_id order by m.created_at desc))[1] as latest_answer_id,
       max(m.created_at)     as latest_at
     from mistakes m

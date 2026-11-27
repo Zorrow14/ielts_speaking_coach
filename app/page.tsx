@@ -34,6 +34,28 @@ export default async function Home() {
       </section>
 
       <section className="card">
+        <h2>Track it</h2>
+        <p className="muted">
+          Trends, repeated mistakes and your notebook are all built from saved
+          answers. Nothing here needs a new AI call.
+        </p>
+        <div className="row">
+          <Link className="button button--quiet" href="/progress">
+            Progress
+          </Link>
+          <Link className="button button--quiet" href="/mistakes">
+            Mistakes
+          </Link>
+          <Link className="button button--quiet" href="/vocab">
+            Vocabulary
+          </Link>
+          <Link className="button button--quiet" href="/weekly">
+            Weekly report
+          </Link>
+        </div>
+      </section>
+
+      <section className="card">
         <h2>Signed in</h2>
         <p>
           <strong>{session?.user?.email ?? "unknown email"}</strong>

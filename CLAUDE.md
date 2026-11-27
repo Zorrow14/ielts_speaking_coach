@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Phase 2 code is in place and committed on `main`, and pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
+Phases 1 to 4 are code-complete and committed on `main`, pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
 
 - `lib/gemini/` — the only module that calls Gemini, via the `interactions` API with structured JSON output and `store: false`.
 - `POST /api/question` and `POST /api/evaluate`, both authenticated, both counted against a daily cap.
 - A `MediaRecorder` recorder with named errors for each failure mode, a two-minute soft warning and a three-minute hard stop.
 - Practice flows for Parts 1, 2 and 3, a results screen, and a history list that reopens saved feedback.
+- Phase 3: a versioned examiner prompt with evidence quotes per criterion, overall computed in code, and deterministic guardrails.
+- Phase 4: progress charts, mistake history, a vocabulary notebook with review mode, and a weekly report — all reading SQL aggregates, none of them making a new Gemini call.
 
 Lint, typecheck and build all pass. What has now been checked against live services:
 
@@ -87,7 +89,9 @@ npm run calibrate    # run the fixture transcripts against the real model
 
 The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build`.
 
-Migrations `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts) are applied to the `dev` and `production` branches. **`0002` (phase 3) is generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+Migrations `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts) are applied to the `dev` and `production` branches. **`0002` (phase 3) and `0003` (phase 4) are generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+
+`0003` is entirely additive (three `vocab_notebook` columns and four indexes) and safe on populated tables. `0002` is not — see below.
 
 `0002` recreates the `mistake_category` enum rather than extending it, because phase 3 replaced the values wholesale. That drops and recreates the type, so it only succeeds while `mistakes` is empty; it also adds `prompt_version`, `model` and `pronunciation_confidence` as NOT NULL with no default, which likewise requires an empty `feedback`. Both tables were empty when it was generated. If rows exist by the time it runs, the migration needs a data-mapping step first.
 
@@ -126,22 +130,33 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `lib/audio.ts` — recording limits and the browser-MIME to Gemini-MIME mapping, shared by the recorder and `/api/evaluate`.
 - `lib/rate-limit.ts` — the daily cap, counted from `api_requests` per UTC day.
 - `lib/db/queries.ts` — every read and write for sessions, answers, feedback and mistakes, including the atomic `db.batch` save.
+- `lib/db/progress.ts` — **all phase 4 aggregation, in SQL**. Moving averages are window functions, the streak is gaps-and-islands, the week comparisons are filtered aggregates. Nothing is averaged in the browser.
+- `lib/db/vocab.ts` — notebook reads and writes plus the 1/3/7/14 day review ladder. Ownership is in the `WHERE` clause of every statement.
+- `lib/time.ts` — `APP_TIME_ZONE` (Asia/Kuala_Lumpur), the single constant every day boundary casts through, plus the `Intl` formatters. The UTC request cap deliberately does not use it.
+- `lib/focus.ts` — the weekly report's three focus points, as rules over stored data. No Gemini call, and each point carries the number it came from.
 - `components/` — `Recorder.tsx` (microphone and clocks), `PracticeSession.tsx` (the per-part flow), `ResultCard.tsx` (shared by the live result and history), `ModelAnswer.tsx` (the on-demand band 7.5 example).
+- `components/ProgressCharts.tsx` — Chart.js line and bar charts. Series colours are CVD-validated palette slots, dark mode is a separate set of steps rather than an inversion, and the expandable table is **required** (canvas is invisible to screen readers, and three light-mode steps fall below 3:1 contrast).
+- `components/Nav.tsx`, `SaveToNotebook.tsx`, `VocabList.tsx`, `VocabReview.tsx` — the phase 4 client components.
 - `tests/calibration/` — `fixtures.ts` holds hand-written transcripts at known bands, including three in the user's own error profile; `run.ts` scores each three times and reports spread, ordering and inflation. Not part of the app.
 
 ## Current phase
 
-Phase 3: Feedback quality — code complete. Scoring is now strict, evidence-based and arithmetic-free on the model's side:
+Phase 4: Progress and notebook — code complete, lint/typecheck/build pass.
 
-- The examiner prompt lives in `lib/prompts/evaluate.ts` with a version stored on every feedback row.
-- Every criterion band must quote 1 to 3 extracts from the transcript, and zod rejects one that does not.
-- `overall` is averaged and half-band rounded in `lib/scoring.ts`, in exact integer units.
-- Guardrails: Part 2 under 60s caps Fluency at 5.5; a transcript under 15 words is refused rather than scored.
-- Pronunciation is an indicator with a confidence field, nullable, and labelled in the UI as the least reliable score.
-- A band 7.5 example of the learner's own answer is available on demand after marking, never before.
+Phase 3 delivered strict, evidence-based scoring: the versioned prompt in `lib/prompts/evaluate.ts`, 1–3 transcript quotes behind every criterion band (enforced by zod), the overall averaged and half-band rounded in `lib/scoring.ts`, and guardrails that cap a short Part 2 and refuse to score under 15 words. Pronunciation is a nullable indicator with a confidence field.
 
-Remaining before phase 3 is done: apply migration `0002` to `dev` (`npm run db:migrate`), then record one real answer end to end.
+Phase 4 added, all from stored data with no new Gemini call:
 
-**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier and returns 503 under load. The calibration harness is the tool for revisiting this: run `npm run calibrate` against both models and compare ordering and spread before switching.
+- `GET /api/progress`, and pages for progress, mistakes, vocabulary and a weekly report.
+- Chart.js charts with a 5-answer moving average, "not enough data yet" under three answers, and dashed rules where the prompt version changed.
+- Mistake history grouped by category and by original→correction pair, with last-7 vs previous-7 counts and a "Fix these first" list from the last 14 days.
+- A vocabulary notebook: one-tap save from any correction, search, feedback/manual filter, and review mode on a 1/3/7/14 day ladder.
+- Mobile nav across all six sections.
 
-Phase 4 is next: progress charts and the vocabulary notebook, both reading what phase 3 now stores. `mistakes.category` is the fixed ten-value list specifically so repeated-mistake counting works without guessing.
+**Verified against a real database.** The phase 4 SQL was executed on a throwaway Neon branch (`sqlcheck-phase4`, created from `production`) with both pending migrations applied and 12 seeded answers: moving averages skip nulls rather than zeroing them, the streak counts 12 consecutive days, case and whitespace variants group into one repeated pair, and baseline/week-over-week figures come out correct. **That scratch branch still exists and should be deleted.**
+
+Remaining before phase 4 can be called done: apply `0002` and `0003` to `dev`, then record at least 10 real answers and walk the "done when" list.
+
+**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier. `npm run calibrate` is the tool for revisiting it: run it against both and compare ordering and spread.
+
+Phase 5 is hardening, per the plan: mic permission and upload failures, the daily cap, and mobile layout. Much of that already exists from phase 2 and wants verifying on a real phone rather than rebuilding.
