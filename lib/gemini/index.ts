@@ -84,19 +84,29 @@ async function generateJson<T extends z.ZodTypeAny>(options: {
   validator: T;
   audio?: AudioPart;
 }): Promise<z.infer<T>> {
+  // The v1 interactions API takes a list of STEPS, not bare content parts:
+  // passing `{ type: "text" }` at the top level is rejected with
+  // "The value 'text' is not supported for 'input[0].type' in v1".
+  // The prompt and any audio therefore go inside one `user_input` step.
+  //
   // Built in one expression so the element type stays the SDK's content union
   // (a pushed audio part would otherwise be widened to the text part's shape).
   const input = [
-    { type: "text" as const, text: options.prompt },
-    ...(options.audio
-      ? [
-          {
-            type: "audio" as const,
-            data: Buffer.from(options.audio.data).toString("base64"),
-            mime_type: options.audio.mimeType,
-          },
-        ]
-      : []),
+    {
+      type: "user_input" as const,
+      content: [
+        { type: "text" as const, text: options.prompt },
+        ...(options.audio
+          ? [
+              {
+                type: "audio" as const,
+                data: Buffer.from(options.audio.data).toString("base64"),
+                mime_type: options.audio.mimeType,
+              },
+            ]
+          : []),
+      ],
+    },
   ];
 
   let lastProblem = "";
