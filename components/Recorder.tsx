@@ -53,19 +53,12 @@ const ANNOUNCE_EVERY_MS = 30_000;
 export default function Recorder({
   onComplete,
   softLimitMs,
-  hardLimitMs = MAX_RECORDING_MS,
   disabled = false,
   label = "Start recording",
 }: {
   onComplete: (recording: Recording) => void;
   /** Point at which the UI nudges you to wrap up. Part 2 uses two minutes. */
   softLimitMs?: number;
-  /**
-   * When recording is cut off. Defaults to the owner's three minutes; guest
-   * mode passes a shorter ceiling, which the server enforces independently -
-   * this is the courtesy, not the control.
-   */
-  hardLimitMs?: number;
   disabled?: boolean;
   label?: string;
 }) {
@@ -250,12 +243,12 @@ export default function Recorder({
 
     // Hard stop. Keeps the upload inside the request body limit and matches
     // the plan's three-minute cap.
-    hardStopRef.current = setTimeout(() => stop("hard_limit"), hardLimitMs);
-  }, [cleanUp, hardLimitMs, onComplete, stop]);
+    hardStopRef.current = setTimeout(() => stop("hard_limit"), MAX_RECORDING_MS);
+  }, [cleanUp, onComplete, stop]);
 
   const recording = state === "recording";
   const pastSoftLimit = softLimitMs !== undefined && elapsedMs >= softLimitMs;
-  const remainingMs = Math.max(0, hardLimitMs - elapsedMs);
+  const remainingMs = Math.max(0, MAX_RECORDING_MS - elapsedMs);
 
   return (
     <div className="recorder">

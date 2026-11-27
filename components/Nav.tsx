@@ -8,9 +8,7 @@
  * scrolling, which keeps all six destinations reachable without a hamburger
  * menu and without a second tap.
  *
- * Hidden on the public pages - /login, /guest, /privacy and /terms - because
- * every link in it points at an owner-only area that a guest cannot reach.
- * Showing it to a guest would be a row of links that all bounce to a login.
+ * Hidden on /login, where there is nothing to navigate to yet.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -26,15 +24,7 @@ const LINKS = [
 
 export default function Nav() {
   const pathname = usePathname();
-  if (
-    pathname === "/login" ||
-    pathname === "/privacy" ||
-    pathname === "/terms" ||
-    pathname === "/guest" ||
-    pathname.startsWith("/guest/")
-  ) {
-    return null;
-  }
+  if (pathname === "/login") return null;
 
   return (
     <nav className="nav" aria-label="Main">

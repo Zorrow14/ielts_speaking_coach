@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Phases 1 to 5 plus guest mode are code-complete and committed on `main`, pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
+Phases 1 to 5 are code-complete and committed on `main`, pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
 
 - `lib/gemini/` — the only module that calls Gemini, via the `interactions` API with structured JSON output and `store: false`.
 - `POST /api/question` and `POST /api/evaluate`, both authenticated, both counted against a daily cap.
@@ -12,8 +12,7 @@ Phases 1 to 5 plus guest mode are code-complete and committed on `main`, pushed 
 - Practice flows for Parts 1, 2 and 3, a results screen, and a history list that reopens saved feedback.
 - Phase 3: a versioned examiner prompt with evidence quotes per criterion, overall computed in code, and deterministic guardrails.
 - Phase 4: progress charts, mistake history, a vocabulary notebook with review mode, and a weekly report — all reading SQL aggregates, none of them making a new Gemini call.
-- Phase 5: an atomic daily cap, a per-minute burst cap, Gemini timeouts and classified failures, idempotent evaluation, structured request logging, security headers, error boundaries, and `DEPLOY.md`.
-- Guest mode: stateless `/api/guest/*` routes, a Vercel BotID check, a signed 24-hour token, four layers of limit including a global daily budget, anonymous counters, and privacy and terms pages. 125 tests.
+- Phase 5: an atomic daily cap, a per-minute burst cap, Gemini timeouts and classified failures, idempotent evaluation, structured request logging, security headers, error boundaries, a 69-test suite, and `DEPLOY.md`.
 
 Lint, typecheck and build all pass. What has now been checked against live services:
 
@@ -40,8 +39,6 @@ Scores are AI estimates and must always be labeled as such in the UI — never p
 - **Every table has `user_id`, and every query filters by it.**
 - **Secrets:** never print or commit `.env*`. Keep a `.env.example` with variable names only.
 - Label all scores as estimates. Never present Pronunciation as a real band.
-- **Guest content is never persisted anywhere.** Not Neon, not a file, not a log, and not `localStorage`, `sessionStorage`, `IndexedDB` or any cookie the app sets itself. A guest's audio, transcript, feedback, questions, mistakes and vocabulary exist only in their browser tab for as long as it is open. The one exception is an anonymous counter row holding a salted hash, a day, an endpoint name and a number.
-- **Guest routes must never import database write code.** No `lib/db/queries`, `lib/db/vocab` or `lib/db/progress`, directly or transitively. `tests/structure/guest-isolation.test.ts` walks the import graph of every guest route and fails with the offending chain if one appears.
 
 ## Architecture (as planned)
 
@@ -96,9 +93,9 @@ The quality gate before calling a phase done is `npm run lint && npm run typeche
 
 `npm run test` uses Node's built-in `node:test` runner — **no test-runner dependency**. It compiles with `tsconfig.tests.json` into a gitignored `.testbuild/`, the same trick the calibration harness uses. The database-backed tests (user isolation, the daily-cap race, idempotency) **skip with a reason** when `DATABASE_URL` is unset, so point it at a disposable branch to run them; they insert and then delete throwaway users, so never aim them at production.
 
-Migrations `0000` and `0001` are applied to the `dev` and `production` branches. **`0002` (phase 3), `0003` (phase 4), `0004` and `0005` (phase 5) and `0006` (guest mode) are generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+Migrations `0000` and `0001` are applied to the `dev` and `production` branches. **`0002` (phase 3), `0003` (phase 4), `0004` and `0005` (phase 5) are generated but NOT applied** — run `npm run db:migrate` against `dev` first.
 
-`0003`, `0004`, `0005` and `0006` are additive and safe on populated tables. `0002` is not — see below. Full procedure, including how to apply to production and how to roll a bad migration back, is in `DEPLOY.md`.
+`0003`, `0004` and `0005` are additive and safe on populated tables. `0002` is not — see below. Full procedure, including how to apply to production and how to roll a bad migration back, is in `DEPLOY.md`.
 
 `0002` recreates the `mistake_category` enum rather than extending it, because phase 3 replaced the values wholesale. That drops and recreates the type, so it only succeeds while `mistakes` is empty; it also adds `prompt_version`, `model` and `pronunciation_confidence` as NOT NULL with no default, which likewise requires an empty `feedback`. Both tables were empty when it was generated. If rows exist by the time it runs, the migration needs a data-mapping step first.
 
@@ -148,56 +145,29 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `next.config.ts` — security headers and the CSP. `script-src` still needs `'unsafe-inline'` for Next's bootstrap scripts; removing it needs per-request nonces through middleware, and that is recorded as an accepted limitation rather than ignored.
 - `tests/` — `unit/` pins the scoring arithmetic, guardrails and zod rejections; `structure/` reads the source and asserts codebase-wide properties (every route authenticated, every query scoped by user, no secret in a client component); `db/` covers isolation, the cap race and idempotency against a real database.
 - `DEPLOY.md` — environment variables, branch setup, migration procedure, smoke test, rollback, and the backup/recovery notes.
-- `lib/guest/` — guest mode. `config.ts` holds every limit and the kill switch; `token.ts` mints and verifies the signed token; `guard.ts` is the shared entry check; **`usage.ts` is the only file in the whole guest path that may touch the database**, and it writes only `guest_usage`.
-- `components/GuestSession.tsx` — the guest flow. Results live in React state and nowhere else; the Download button builds a Markdown report from memory with no request.
-- `app/privacy/page.tsx`, `app/terms/page.tsx` — public, both carrying a NOT-LEGAL-ADVICE comment at the top. The privacy page switches its Google paragraph on `GEMINI_PAID_TIER` so the disclosure cannot go stale.
 - `tests/calibration/` — `fixtures.ts` holds hand-written transcripts at known bands, including three in the user's own error profile; `run.ts` scores each three times and reports spread, ordering and inflation. Not part of the app.
-
-## Guest mode
-
-Anyone can try the app without an account, under strict limits, and **nothing they say is stored**. The owner login and every owner feature are untouched.
-
-How the privacy promise is actually enforced, rather than just intended:
-
-- **By the import graph.** The guest routes cannot reach `lib/db/queries`, `lib/db/vocab` or `lib/db/progress`. There is no branch to get wrong, because there is no reachable code that writes. A test proves it and prints the chain if it ever breaks.
-- **By there being one gateway.** `lib/guest/usage.ts` is the only guest file that imports the database, and the only table it names is `guest_usage`.
-- **By the browser holding nothing.** No `localStorage`, `sessionStorage`, `IndexedDB` or self-set cookie in the guest flow. Results are React state; a refresh loses them, which the banner says plainly.
-
-The pieces:
-
-| Concern | Where |
-|---|---|
-| Kill switch, all limits | `lib/guest/config.ts` — `GUEST_MODE_ENABLED` defaults to **false** |
-| Signed token | `lib/guest/token.ts` — HMAC over {random id, expiry}, max 24h, httpOnly cookie |
-| Counters | `lib/guest/usage.ts` + the `guest_usage` table |
-| Bot check | Vercel BotID, at `/api/guest/start` only |
-| Routes | `app/api/guest/{start,question,evaluate}` |
-| UI | `app/guest/page.tsx`, `components/GuestSession.tsx` |
-
-Four limits, all per UTC day: 3 evaluations and 10 questions per token, 5 evaluations per IP hash (so clearing cookies does not reset it), and a **global budget of 100 evaluations across all guests** — the one that protects the bill. Recording is capped at 90s for Parts 1 and 3 and 120s for Part 2, enforced on the server.
-
-The counters hold a salted hash, a day, an endpoint name and a number. The salt is derived per UTC day, so the same guest hashes differently tomorrow and rows cannot be joined across days into a history of anybody. The raw IP is hashed in memory and never written. Rows over a day old are swept lazily on write — not a cron job, because the table is a few rows a day and a cron job is one more thing to configure and forget.
-
-**The Gemini tier matters here in a way it does not for the owner.** On the free tier, Google's terms say submitted content may be used to improve their products and that human reviewers may see it. The privacy page says so plainly, because `GEMINI_PAID_TIER` is false. If you enable billing, set that variable in the same change — otherwise the page understates what you now offer.
 
 ## Current phase
 
-Guest mode — code complete. Lint, typecheck, build and 125 tests pass.
+Phase 5: Hardening — code complete. Lint, typecheck, build and 69 tests pass.
 
-Remaining before it can be called done:
+What changed, and why it matters:
 
-1. Apply `0002`–`0006` to `dev` (`npm run db:migrate`).
-2. Run `npm run test` with `DATABASE_URL` pointed at a disposable branch, so the database suites actually execute instead of skipping.
-3. Set `GUEST_MODE_ENABLED=true` and walk the guest flow on a phone.
-4. Decide on billing. The privacy page currently tells guests the free-tier truth.
+- **The daily cap is now exact under concurrency.** Phase 2 counted rows then inserted, which two parallel requests could both pass. It is now a single atomic statement against `rate_buckets`; verified on a scratch branch, where attempts 1–3 against a cap of 3 returned counters and attempts 4–5 returned nothing.
+- **Evaluation is idempotent** per recording, keyed on a browser-generated `client_token` with a partial unique index. A retry after a timeout that actually succeeded returns the first result instead of marking and charging twice.
+- **Every Gemini call has a 55s timeout**, the SDK's own retry policy is off, and failures are classified (`quota`, `overloaded`, `timeout`, `safety`, `bad_request`, `auth`). A quota error is never retried.
+- **A failed upload keeps the audio in memory** so "Try again" re-sends it. Memory only — never a file, never storage.
+- **The recorder handles a microphone lost mid-answer and a hidden tab or locked screen**, keeping what was captured and saying what happened.
 
 Known limitations, recorded rather than hidden:
 
 - `script-src 'unsafe-inline'` remains in the CSP (see `next.config.ts`).
-- BotID Deep Analysis, the ML layer that catches Playwright-style automation, needs a Vercel Pro plan. On Hobby the check is heuristic only.
-- The bot check runs at `/api/guest/start`, not on every guest request. The token is unforgeable, so the gate is at the door.
-- Audio duration is client-reported and only range-checked; the byte limit is the real server-side guard.
-- The privacy and terms pages are honest descriptions of the code, **not** reviewed by a lawyer, and say so in a comment.
+- Audio duration is client-reported and only range-checked; the byte limit is the real server-side guard, because the server cannot measure duration without decoding.
+- The notebook search uses `ILIKE '%...%'`, which no btree index can serve. Fine at this size; `pg_trgm` would be the fix if it ever is not.
 - Nothing has been exercised on a real phone yet.
 
-The plan's five phases are built, and guest mode is beyond its original scope. Anything further is new scope: the Gemini Live API, real multi-user accounts, or the two calibration fixtures whose intended bands are still disputed (`tests/calibration/README.md`).
+Remaining before phase 5 can be called done: apply `0002`–`0005` to `dev`, run `npm run test` with `DATABASE_URL` pointed at a disposable branch so the database tests actually execute, and walk the smoke test in `DEPLOY.md` on a phone.
+
+**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier. `npm run calibrate` is the tool for revisiting it.
+
+The plan's five phases are now all built. Anything further is new scope: the Gemini Live API, a second user, or the two calibration fixtures whose intended bands are still disputed (`tests/calibration/README.md`).
