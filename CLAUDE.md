@@ -171,3 +171,15 @@ Remaining before phase 5 can be called done: apply `0002`–`0005` to `dev`, run
 **Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier. `npm run calibrate` is the tool for revisiting it.
 
 The plan's five phases are now all built. Anything further is new scope: the Gemini Live API, a second user, or the two calibration fixtures whose intended bands are still disputed (`tests/calibration/README.md`).
+
+## Rolled back attempts
+
+**Guest mode — attempted and rolled back, 27 Nov 2026.**
+
+Guest mode (public `/api/guest/*` routes, a signed guest token, a Vercel BotID check, anonymous `guest_usage` counters, privacy and terms pages, and a guest UI) was built on top of phase 5 and then reverted in full. Phases 1 to 5 are untouched.
+
+- **The work is kept**, not lost: branch `backup/guest-attempt-20261127`, tag `guest-attempt-20261127`, both at `db189b1`. Nothing was force-pushed and no history was rewritten; the rollback is a revert commit on top.
+- **Why it was rolled back:** the deployed app started returning `500` on `/api/question` ("Could not reach the server. Check your connection."). The cause was **not** guest mode — the Vercel production deployment was pointed at the Neon `production` branch, which still had only migrations `0000`–`0001`, so `rate_buckets` (`0004`), `feedback.prompt_version` (`0002`) and `vocab_notebook.next_review` (`0003`) were all missing. Guest mode's own `0006` was one symptom among four, not the disease.
+- **Before retrying**, apply `0002`–`0005` to the `production` branch. Guest mode will fail the same way again if the schema a deployment reads is behind the code it is running.
+
+See `ROLLBACK_NOTES.md` for the full account and the retry checklist.
