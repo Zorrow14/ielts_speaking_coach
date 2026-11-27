@@ -23,14 +23,38 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
+/**
+ * Specific enough to count. Phase 4's repeated-mistake analysis needs to know
+ * a learner keeps dropping articles, which "grammar" would never tell it.
+ * Mirrors MISTAKE_CATEGORIES in lib/schemas.ts - keep the two in step.
+ */
 export const mistakeCategory = pgEnum("mistake_category", [
-  "grammar",
-  "vocab",
+  "article",
+  "preposition",
+  "countability",
+  "agreement",
+  "tense",
+  "word_choice",
+  "collocation",
+  "repetition",
   "fluency",
+  "other",
+]);
+
+/** How far the audio supports the pronunciation indicator. */
+export const pronunciationConfidence = pgEnum("pronunciation_confidence", [
+  "high",
+  "medium",
+  "low",
+  "unavailable",
 ]);
 
 /** Routes that consume Gemini quota and are therefore counted against the cap. */
-export const apiRoute = pgEnum("api_route", ["question", "evaluate"]);
+export const apiRoute = pgEnum("api_route", [
+  "question",
+  "evaluate",
+  "model_answer",
+]);
 
 export const users = pgTable(
   "users",
@@ -90,9 +114,20 @@ export const answers = pgTable(
 );
 
 /**
- * Gemini's scored feedback for one answer. `pronunciationEst` is an indicator
- * only and must never be shown as an official band. `rawJson` keeps the
- * validated model output so the display can change without re-evaluating.
+ * Scored feedback for one answer.
+ *
+ * `pronunciationEst` is an indicator only and must never be shown as an
+ * official band. It is nullable because an answer with no usable audio gets an
+ * honest null rather than a guess.
+ *
+ * `overall` is computed in lib/scoring.ts, not returned by the model.
+ *
+ * `promptVersion` and `model` record what produced the scores, so a band given
+ * today stays interpretable after the prompt changes. `evidence` keeps the
+ * per-criterion quotes that justified each band.
+ *
+ * `rawJson` keeps the validated model output so the display can change without
+ * re-evaluating.
  */
 export const feedback = pgTable(
   "feedback",
@@ -110,10 +145,25 @@ export const feedback = pgTable(
     pronunciationEst: numeric("pronunciation_est", {
       precision: 2,
       scale: 1,
-    }).notNull(),
+    }),
+    pronunciationConfidence: pronunciationConfidence(
+      "pronunciation_confidence",
+    ).notNull(),
     overall: numeric("overall", { precision: 2, scale: 1 }).notNull(),
     strengths: jsonb("strengths").$type<string[]>().notNull().default([]),
     nextSteps: jsonb("next_steps").$type<string[]>().notNull().default([]),
+    /** Per-criterion quotes from the transcript that justified each band. */
+    evidence: jsonb("evidence")
+      .$type<Record<string, string[]>>()
+      .notNull()
+      .default({}),
+    /** Deterministic caps that were applied, e.g. a Part 2 under a minute. */
+    guardrails: jsonb("guardrails")
+      .$type<Array<{ code: string; message: string }>>()
+      .notNull()
+      .default([]),
+    promptVersion: text("prompt_version").notNull(),
+    model: text("model").notNull(),
     rawJson: jsonb("raw_json").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

@@ -6,12 +6,17 @@
  * Both calls use structured JSON output and are validated with zod before the
  * result is trusted. On a validation failure the call is retried exactly once,
  * then gives up with a clear error.
+ *
+ * Evaluation runs at a low temperature with a fixed seed: the same answer
+ * should get the same band twice, and creativity is not wanted in a mark.
  */
 import { GoogleGenAI } from "@google/genai";
 import type * as z from "zod";
 import {
   evaluationJsonSchema,
   evaluationSchema,
+  modelAnswerJsonSchema,
+  modelAnswerSchema,
   part1QuestionJsonSchema,
   part1QuestionSchema,
   part2CueCardJsonSchema,
@@ -19,13 +24,24 @@ import {
   part3QuestionJsonSchema,
   part3QuestionSchema,
   type Evaluation,
+  type ModelAnswer,
   type Part,
   type QuestionResponse,
 } from "../schemas";
 import {
+  EVALUATION_SEED,
+  EVALUATION_TEMPERATURE,
+  MODEL_ANSWER_TEMPERATURE,
+} from "../scoring";
+import {
   EVALUATION_SYSTEM_INSTRUCTION,
-  QUESTION_SYSTEM_INSTRUCTION,
+  MODEL_ANSWER_SYSTEM_INSTRUCTION,
+  PROMPT_VERSION,
   evaluationPrompt,
+  modelAnswerPrompt,
+} from "../prompts/evaluate";
+import {
+  QUESTION_SYSTEM_INSTRUCTION,
   part1Prompt,
   part2Prompt,
   part3Prompt,
@@ -60,7 +76,7 @@ function client(): GoogleGenAI {
   return cached;
 }
 
-function modelName(): string {
+export function modelName(): string {
   const model = process.env.GEMINI_MODEL;
   if (!model) {
     throw new Error(
@@ -71,6 +87,8 @@ function modelName(): string {
 }
 
 type AudioPart = { data: Uint8Array; mimeType: string };
+
+type GenerationConfig = { temperature?: number; seed?: number };
 
 /**
  * One Gemini call that must come back as schema-valid JSON, with a single
@@ -83,6 +101,7 @@ async function generateJson<T extends z.ZodTypeAny>(options: {
   jsonSchema: object;
   validator: T;
   audio?: AudioPart;
+  generationConfig?: GenerationConfig;
 }): Promise<z.infer<T>> {
   // The v1 interactions API takes a list of STEPS, not bare content parts:
   // passing `{ type: "text" }` at the top level is rejected with
@@ -117,6 +136,9 @@ async function generateJson<T extends z.ZodTypeAny>(options: {
       system_instruction: options.systemInstruction,
       input,
       store: false,
+      ...(options.generationConfig
+        ? { generation_config: options.generationConfig }
+        : {}),
       response_format: {
         type: "text",
         mime_type: "application/json",
@@ -192,6 +214,14 @@ export async function generateQuestion(input: {
   return { part: 3, ...result };
 }
 
+/** What produced an evaluation, stored alongside it. */
+export type EvaluationProvenance = { promptVersion: string; model: string };
+
+export type EvaluationResult = {
+  evaluation: Evaluation;
+  provenance: EvaluationProvenance;
+};
+
 /**
  * Transcribes and scores one spoken answer in a single call. The audio bytes
  * are passed through to Gemini and never written anywhere.
@@ -202,16 +232,81 @@ export async function evaluateAnswer(input: {
   durationSec: number;
   audio: Uint8Array;
   mimeType: string;
-}): Promise<Evaluation> {
-  return generateJson({
+}): Promise<EvaluationResult> {
+  const evaluation = await generateJson({
     systemInstruction: EVALUATION_SYSTEM_INSTRUCTION,
     prompt: evaluationPrompt({
       part: input.part,
       question: input.question,
       durationSec: input.durationSec,
+      hasAudio: true,
     }),
     jsonSchema: evaluationJsonSchema,
     validator: evaluationSchema,
     audio: { data: input.audio, mimeType: input.mimeType },
+    generationConfig: {
+      temperature: EVALUATION_TEMPERATURE,
+      seed: EVALUATION_SEED,
+    },
+  });
+  return {
+    evaluation,
+    provenance: { promptVersion: PROMPT_VERSION, model: modelName() },
+  };
+}
+
+/**
+ * Scores a transcript with no audio. Used by the calibration harness, which
+ * works from written fixtures: it exercises the same prompt and schema as the
+ * live path, minus pronunciation, which is honestly reported as unavailable
+ * rather than guessed from spelling.
+ *
+ * `seed` is overridable so repeated calibration runs are independent samples
+ * rather than three copies of one answer.
+ */
+export async function evaluateTranscript(input: {
+  part: Part;
+  question: string;
+  transcript: string;
+  durationSec?: number;
+  seed?: number;
+}): Promise<EvaluationResult> {
+  const evaluation = await generateJson({
+    systemInstruction: EVALUATION_SYSTEM_INSTRUCTION,
+    prompt: evaluationPrompt({
+      part: input.part,
+      question: input.question,
+      durationSec: input.durationSec ?? 0,
+      hasAudio: false,
+      transcript: input.transcript,
+    }),
+    jsonSchema: evaluationJsonSchema,
+    validator: evaluationSchema,
+    generationConfig: {
+      temperature: EVALUATION_TEMPERATURE,
+      ...(input.seed === undefined ? {} : { seed: input.seed }),
+    },
+  });
+  return {
+    evaluation,
+    provenance: { promptVersion: PROMPT_VERSION, model: modelName() },
+  };
+}
+
+/**
+ * A band 7.5 version of the learner's own answer. Generated on demand only,
+ * after the answer has been marked - never before they have spoken.
+ */
+export async function generateModelAnswer(input: {
+  part: Part;
+  question: string;
+  transcript: string;
+}): Promise<ModelAnswer> {
+  return generateJson({
+    systemInstruction: MODEL_ANSWER_SYSTEM_INSTRUCTION,
+    prompt: modelAnswerPrompt(input),
+    jsonSchema: modelAnswerJsonSchema,
+    validator: modelAnswerSchema,
+    generationConfig: { temperature: MODEL_ANSWER_TEMPERATURE },
   });
 }

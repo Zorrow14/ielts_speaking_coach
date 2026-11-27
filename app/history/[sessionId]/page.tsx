@@ -56,8 +56,8 @@ export default async function SessionPage({
             transcript={answer.transcript}
             durationSec={answer.durationSec}
             wordCount={answer.wordCount}
-            scores={answer.scores}
-            mistakes={answer.mistakes}
+            view={answer.view}
+            answerId={answer.id}
           />
         ))
       )}

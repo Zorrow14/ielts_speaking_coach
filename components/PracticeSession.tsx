@@ -13,9 +13,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Recorder, { type Recording } from "./Recorder";
-import ResultCard, { type ResultMistake, type ResultScores } from "./ResultCard";
+import ResultCard from "./ResultCard";
 import { PART2_PREP_MS, PART2_SOFT_LIMIT_MS, formatClock } from "@/lib/audio";
+import { buildResultView, type ResultView } from "@/lib/result-view";
 import type { Evaluation, Part, QuestionResponse } from "@/lib/schemas";
+import type { Scored } from "@/lib/scoring";
 
 /** How many questions make up a session, per part. */
 const QUESTIONS_PER_SESSION: Record<Part, number> = { 1: 4, 2: 1, 3: 4 };
@@ -29,12 +31,13 @@ type Stage =
   | "finished";
 
 type MarkedAnswer = {
+  /** The saved answer id, which the band 7.5 example is requested against. */
+  answerId: string;
   question: string;
   transcript: string;
   durationSec: number;
   wordCount: number;
-  scores: ResultScores;
-  mistakes: ResultMistake[];
+  view: ResultView;
 };
 
 export default function PracticeSession({ part }: { part: Part }) {
@@ -147,23 +150,23 @@ export default function PracticeSession({ part }: { part: Part }) {
         if (data.usage) setUsage(data.usage);
 
         const evaluation = data.evaluation as Evaluation;
+        const transcript = evaluation.transcript.trim();
         const marked: MarkedAnswer = {
+          answerId: data.answerId as string,
           question: questionText,
           transcript: evaluation.transcript,
           durationSec: recording.durationSec,
-          wordCount: evaluation.transcript.trim()
-            ? evaluation.transcript.trim().split(/\s+/).length
-            : 0,
-          scores: {
-            fluency: evaluation.fluency.toFixed(1),
-            lexical: evaluation.lexical.toFixed(1),
-            grammar: evaluation.grammar.toFixed(1),
-            pronunciationEst: evaluation.pronunciation_est.toFixed(1),
-            overall: evaluation.overall.toFixed(1),
-            strengths: evaluation.strengths,
-            nextSteps: evaluation.next_steps,
-          },
-          mistakes: evaluation.mistakes,
+          wordCount: transcript ? transcript.split(/\s+/).length : 0,
+          // The bands come from the server's computed `scored`, not from the
+          // model output, so the guardrail caps are reflected here too.
+          view: buildResultView({
+            evaluation,
+            scored: data.scored as Scored,
+            provenance: data.provenance as {
+              promptVersion: string;
+              model: string;
+            },
+          }),
         };
 
         previousRef.current = {
@@ -255,12 +258,12 @@ export default function PracticeSession({ part }: { part: Part }) {
       {stage === "result" && latest ? (
         <>
           <ResultCard
+            answerId={latest.answerId}
             question={latest.question}
             transcript={latest.transcript}
             durationSec={latest.durationSec}
             wordCount={latest.wordCount}
-            scores={latest.scores}
-            mistakes={latest.mistakes}
+            view={latest.view}
           />
           <button type="button" className="button" onClick={next}>
             {isLastQuestion ? "Finish session" : "Next question"}

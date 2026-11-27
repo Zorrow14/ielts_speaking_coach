@@ -333,3 +333,111 @@ button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* --- Phase 3: criteria, evidence, guardrails, model answer --------------- */
+
+/* The old .scores grid is gone: each criterion now needs room for its
+   evidence quotes, so they stack rather than sit two to a row. */
+.criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.criterion {
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.criterion__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.criterion__band {
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-geist-mono), monospace;
+  min-width: 2.2rem;
+}
+
+.criterion__label {
+  font-size: 0.9rem;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.criterion__label .muted {
+  font-weight: 400;
+}
+
+.criterion__estimate {
+  font-size: 0.75rem;
+  margin: 0.15rem 0 0.4rem;
+}
+
+.evidence {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.evidence li {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  padding-left: 0.7rem;
+  border-left: 2px solid color-mix(in srgb, var(--foreground) 25%, transparent);
+}
+
+.evidence q {
+  font-style: italic;
+}
+
+.bullets--tight li {
+  font-size: 0.8rem;
+}
+
+.bullets--ranked {
+  counter-reset: step;
+}
+
+.guardrails {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.provenance {
+  font-size: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+  padding-top: 0.6rem;
+}
+
+.model-answer {
+  margin-top: 0.5rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px dashed color-mix(in srgb, var(--foreground) 25%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.model-answer h4,
+.model-answer h5 {
+  margin: 0;
+}
+
+.model-answer__text {
+  line-height: 1.6;
+  white-space: pre-line;
+}

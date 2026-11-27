@@ -16,6 +16,7 @@ import { ensureUser } from "@/lib/db/users";
 import { evaluateAnswer, GeminiOutputError } from "@/lib/gemini";
 import { consumeDailyAllowance } from "@/lib/rate-limit";
 import { partSchema } from "@/lib/schemas";
+import { score, tooShortToScore } from "@/lib/scoring";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const evaluation = await evaluateAnswer({
+    const { evaluation, provenance } = await evaluateAnswer({
       part,
       question,
       durationSec,
@@ -121,18 +122,45 @@ export async function POST(request: Request) {
       );
     }
 
+    // Guardrail: too little speech to score fairly. Refused rather than
+    // scored, because a band from six words is noise dressed as a number.
+    const tooShort = tooShortToScore(evaluation.transcript);
+    if (tooShort) {
+      return Response.json(
+        { error: tooShort.message, sessionId, transcript: evaluation.transcript },
+        { status: 422 },
+      );
+    }
+
+    // Bands and overall are computed here, never taken from the model.
+    const scored = score({ evaluation, part, durationSec });
+    if (!scored) {
+      return Response.json(
+        {
+          error:
+            "The examiner could not score that answer. Try recording it again.",
+          sessionId,
+        },
+        { status: 502 },
+      );
+    }
+
     const answerId = await saveEvaluation({
       userId,
       sessionId,
       question,
       durationSec,
       evaluation,
+      scored,
+      provenance,
     });
 
     return Response.json({
       sessionId,
       answerId,
       evaluation,
+      scored,
+      provenance,
       usage: { used: allowance.used, cap: allowance.cap },
     });
   } catch (error) {

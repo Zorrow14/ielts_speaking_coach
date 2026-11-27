@@ -30,7 +30,7 @@ export type CapResult =
  */
 export async function consumeDailyAllowance(
   userId: string,
-  route: "question" | "evaluate",
+  route: "question" | "evaluate" | "model_answer",
 ): Promise<CapResult> {
   const db = getDb();
   const cap = dailyCap();
