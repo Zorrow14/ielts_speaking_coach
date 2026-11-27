@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Compiled output of the calibration harness; linting generated
+    // CommonJS tells us nothing the sources have not already been checked for.
+    ".calibration/**",
   ]),
 ]);
 
