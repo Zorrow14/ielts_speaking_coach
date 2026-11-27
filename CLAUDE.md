@@ -12,16 +12,18 @@ Phases 1 to 5 are code-complete and committed on `main`, pushed to https://githu
 - Practice flows for Parts 1, 2 and 3, a results screen, and a history list that reopens saved feedback.
 - Phase 3: a versioned examiner prompt with evidence quotes per criterion, overall computed in code, and deterministic guardrails.
 - Phase 4: progress charts, mistake history, a vocabulary notebook with review mode, and a weekly report — all reading SQL aggregates, none of them making a new Gemini call.
-- Phase 5: an atomic daily cap, a per-minute burst cap, Gemini timeouts and classified failures, idempotent evaluation, structured request logging, security headers, error boundaries, a 69-test suite, and `DEPLOY.md`.
+- Phase 5: an atomic daily cap, a per-minute burst cap, Gemini timeouts and classified failures, idempotent evaluation, structured request logging, security headers, error boundaries, and `DEPLOY.md`.
+- Post-incident hardening (28 Nov): `lib/db-guard.ts` so a database failure is a classified 503 rather than a bare 500, `npm run db:check`, and a `/api/health` that reports schema drift. 113 tests.
 
-Lint, typecheck and build all pass. What has now been checked against live services:
+Lint, typecheck, build and tests all pass. What has been checked against live services:
 
 - `.env.local` exists with all eight values filled in.
-- Both migrations (`0000`, `0001`) are applied to **both** Neon branches, `dev` and `production`: 7 tables, 17 indexes, 10 foreign keys, 2 enums, and matching `drizzle.__drizzle_migrations` journals on each.
+- **All six migrations (`0000`–`0005`) are applied to both Neon branches, `dev` and `production`.** Confirmed by querying `drizzle.__drizzle_migrations` on each, and on production by checking that `rate_buckets`, `feedback.prompt_version`, `vocab_notebook.next_review`, `answers.client_token`, `mistakes_user_pair_folded_idx` and the ten-value `mistake_category` enum all exist.
 - The Gemini `interactions` call has been exercised live for both shapes — a Part 1 question, and an evaluation with inline audio — and returns schema-valid JSON.
-- The app is deployed on Vercel with all seven environment variables set.
+- The app is deployed on Vercel with all seven environment variables set, and `https://ieltsspeakingcoach.vercel.app/api/health` returns 200.
+- The calibration harness has run against the real model: 36 of 36 calls succeeded, band ordering holds, run-to-run spread is 0 or 0.5.
 
-Still unverified end to end: GitHub sign-in against the deployed app, and a full recorded answer through the browser.
+Still unverified end to end: **GitHub sign-in against the deployed app, and a full recorded answer through a browser.** Nothing has been tried on a phone. Until one real answer has been recorded, marked and saved in production, the core loop is unproven in production — every table there is still empty except `users`.
 
 `IELTS_Speaking_Coach_Project_Plan.md` (plan date 26 Nov 2026) is the authoritative spec. Read it before making architectural choices; update it when a decision in it changes, and keep this file in sync with what actually exists.
 
@@ -85,17 +87,20 @@ npm run typecheck    # tsc --noEmit
 npm run db:generate  # generate SQL in drizzle/ from schema changes
 npm run db:migrate   # apply pending migrations to the DATABASE_URL target
 npm run db:studio    # drizzle-kit studio, browse the data
+npm run db:check     # are the DATABASE_URL target's migrations in step with drizzle/?
 npm run calibrate    # run the fixture transcripts against the real model
 npm run test         # node:test suite (unit, structural, and DB when DATABASE_URL is set)
 ```
 
 The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build && npm run test`.
 
+**Before any deploy, also run `npm run db:check` against production.** It prints the migrations the target has applied against the journal in `drizzle/` and exits 1 when the database is behind, which is the exact failure that took the app down on 27 Nov. Names and counts only; it never prints a connection string. It runs on Node's native TypeScript support (22.18+), so there is no build step and no new dependency — that is why `allowImportingTsExtensions` is on in the root tsconfig and explicitly off in the two configs that emit.
+
 `npm run test` uses Node's built-in `node:test` runner — **no test-runner dependency**. It compiles with `tsconfig.tests.json` into a gitignored `.testbuild/`, the same trick the calibration harness uses. The database-backed tests (user isolation, the daily-cap race, idempotency) **skip with a reason** when `DATABASE_URL` is unset, so point it at a disposable branch to run them; they insert and then delete throwaway users, so never aim them at production.
 
-Migrations `0000` and `0001` are applied to the `dev` and `production` branches. **`0002` (phase 3), `0003` (phase 4), `0004` and `0005` (phase 5) are generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+**All six migrations (`0000`–`0005`) are applied to both `dev` and `production`** as of 27 Nov 2026. `npm run db:check` is how you confirm that rather than trusting this paragraph — it reads the target database and exits non-zero if it is behind.
 
-`0003`, `0004` and `0005` are additive and safe on populated tables. `0002` is not — see below. Full procedure, including how to apply to production and how to roll a bad migration back, is in `DEPLOY.md`.
+`0003`, `0004` and `0005` are additive and safe on populated tables. `0002` is not — see below. It ran while `feedback` and `mistakes` were empty on both branches, which is the only window in which it could have succeeded. Full procedure, including how to apply to production and how to roll a bad migration back, is in `DEPLOY.md`.
 
 `0002` recreates the `mistake_category` enum rather than extending it, because phase 3 replaced the values wholesale. That drops and recreates the type, so it only succeeds while `mistakes` is empty; it also adds `prompt_version`, `model` and `pronunciation_confidence` as NOT NULL with no default, which likewise requires an empty `feedback`. Both tables were empty when it was generated. If rows exist by the time it runs, the migration needs a data-mapping step first.
 
@@ -133,6 +138,8 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `lib/gemini/` — `index.ts` is the single entry point (every call, the retry, the key, the temperature); `prompts.ts` now holds only the question and cue-card prompts.
 - `lib/audio.ts` — recording limits and the browser-MIME to Gemini-MIME mapping, shared by the recorder and `/api/evaluate`.
 - `lib/rate-limit.ts` — the daily cap and the per-minute burst cap. **Atomic**: one `insert ... on conflict do update ... where used < cap` against `rate_buckets`, so the conflicting row is locked and the limit re-checked against it. Parallel requests cannot both see the last slot. `api_requests` is now only an audit log, not the enforcement path.
+- `lib/db-guard.ts` — **the seam that makes a database failure legible.** `dbCall(step, fn)` labels a call; `DatabaseError` digs the SQLSTATE out of drizzle's wrapper; `databaseFailure(log, error)` turns it into a classified 503. The five codes meaning the schema is behind the code get `errorKind: "schema_behind"` and a message saying retrying will not help.
+- `lib/schema-state.ts` — compares applied migrations against the journal. Pure: the health route feeds it the journal by import, `scripts/db-check.mts` by `fs`.
 - `lib/log.ts` — structured logging. One JSON line per request with a request id, route, user id, status, duration and error kind, and **never** audio, transcripts, prompts or secrets. `errorResponse()` is how routes reply, so no handler can accidentally return a stack.
 - `lib/db/queries.ts` — every read and write for sessions, answers, feedback and mistakes, including the atomic `db.batch` save.
 - `lib/db/progress.ts` — **all phase 4 aggregation, in SQL**. Moving averages are window functions, the streak is gaps-and-islands, the week comparisons are filtered aggregates. Nothing is averaged in the browser.
@@ -143,34 +150,46 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `components/ProgressCharts.tsx` — Chart.js line and bar charts. Series colours are CVD-validated palette slots, dark mode is a separate set of steps rather than an inversion, and the expandable table is **required** (canvas is invisible to screen readers, and three light-mode steps fall below 3:1 contrast).
 - `components/Nav.tsx`, `SaveToNotebook.tsx`, `VocabList.tsx`, `VocabReview.tsx` — the phase 4 client components.
 - `next.config.ts` — security headers and the CSP. `script-src` still needs `'unsafe-inline'` for Next's bootstrap scripts; removing it needs per-request nonces through middleware, and that is recorded as an accepted limitation rather than ignored.
-- `tests/` — `unit/` pins the scoring arithmetic, guardrails and zod rejections; `structure/` reads the source and asserts codebase-wide properties (every route authenticated, every query scoped by user, no secret in a client component); `db/` covers isolation, the cap race and idempotency against a real database.
+- `scripts/db-check.mts` — `npm run db:check`. Plain Node, no build step.
+- `tests/` — `unit/` pins the scoring arithmetic, guardrails, zod rejections, the database-failure path and the drift comparison; `structure/` reads the source and asserts codebase-wide properties (every route authenticated, every query scoped by user, no secret in a client component); `db/` covers isolation, the cap race and idempotency against a real database.
 - `DEPLOY.md` — environment variables, branch setup, migration procedure, smoke test, rollback, and the backup/recovery notes.
+- `CALIBRATION_REVIEW.md` — the two disputed fixtures laid out with transcripts, runs and evidence quotes, for a human to settle. Neither has been relabelled.
 - `tests/calibration/` — `fixtures.ts` holds hand-written transcripts at known bands, including three in the user's own error profile; `run.ts` scores each three times and reports spread, ordering and inflation. Not part of the app.
 
 ## Current phase
 
-Phase 5: Hardening — code complete. Lint, typecheck, build and 69 tests pass.
+Phases 1 to 5 are built, and production finally runs the schema the code expects. The remaining work is verification, not construction.
 
-What changed, and why it matters:
+**What is actually true right now:**
 
-- **The daily cap is now exact under concurrency.** Phase 2 counted rows then inserted, which two parallel requests could both pass. It is now a single atomic statement against `rate_buckets`; verified on a scratch branch, where attempts 1–3 against a cap of 3 returned counters and attempts 4–5 returned nothing.
-- **Evaluation is idempotent** per recording, keyed on a browser-generated `client_token` with a partial unique index. A retry after a timeout that actually succeeded returns the first result instead of marking and charging twice.
-- **Every Gemini call has a 55s timeout**, the SDK's own retry policy is off, and failures are classified (`quota`, `overloaded`, `timeout`, `safety`, `bad_request`, `auth`). A quota error is never retried.
-- **A failed upload keeps the audio in memory** so "Try again" re-sends it. Memory only — never a file, never storage.
-- **The recorder handles a microphone lost mid-answer and a hidden tab or locked screen**, keeping what was captured and saying what happened.
+- All six migrations are applied to `dev` and `production`. `npm run db:check` confirms it.
+- `https://ieltsspeakingcoach.vercel.app/api/health` returns 200.
+- Lint, typecheck, build and 113 tests pass.
+- Production holds **one `users` row and nothing else**. No session, answer, feedback or mistake has ever been written there.
+
+**What still has not been done, and matters most:** record one real answer through the deployed app on a phone. Sign in with GitHub, answer a Part 1 question, and confirm the result saves and appears in history and progress. Everything else is inference until that happens.
+
+### What the 27 November outage changed
+
+Migrations were applied to `dev`; the deployment read `production`; nothing compared them. Code and schema drifted across five migrations and the first signal was a 500 in a browser console. Three things came out of it:
+
+- **No route awaits anything before it can handle a failure.** `/api/question` called `consumeDailyAllowance()` above its try block, so the throw escaped the handler entirely. A structural test now enforces the rule for every route, including ones not written yet.
+- **A database failure is never a bare 500.** `lib/db-guard.ts` classifies it, and a missing table or column says so explicitly rather than looking like a transient fault.
+- **Drift is checkable.** `npm run db:check` before every deploy, and `/api/health` returns `schema_behind` with the missing migration names instead of cheerfully saying "ok" while every route 500s.
 
 Known limitations, recorded rather than hidden:
 
 - `script-src 'unsafe-inline'` remains in the CSP (see `next.config.ts`).
 - Audio duration is client-reported and only range-checked; the byte limit is the real server-side guard, because the server cannot measure duration without decoding.
 - The notebook search uses `ILIKE '%...%'`, which no btree index can serve. Fine at this size; `pg_trgm` would be the fix if it ever is not.
+- Vercel's `DATABASE_URL` is set for **both** Production and Preview, and both point at the `production` branch. A preview deploy can therefore write to real data. `DEPLOY.md` section 2 says they should be split.
+- The `dev` branch has a TTL and expires **2026-12-26**. An expired Neon branch is deleted with its data.
+- Two calibration fixtures still score above their labels; see `CALIBRATION_REVIEW.md`.
 - Nothing has been exercised on a real phone yet.
-
-Remaining before phase 5 can be called done: apply `0002`–`0005` to `dev`, run `npm run test` with `DATABASE_URL` pointed at a disposable branch so the database tests actually execute, and walk the smoke test in `DEPLOY.md` on a phone.
 
 **Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier. `npm run calibrate` is the tool for revisiting it.
 
-The plan's five phases are now all built. Anything further is new scope: the Gemini Live API, a second user, or the two calibration fixtures whose intended bands are still disputed (`tests/calibration/README.md`).
+The plan's five phases are all built. Anything further is new scope: the Gemini Live API, a second user, or retrying guest mode from the backup branch.
 
 ## Rolled back attempts
 
@@ -180,6 +199,6 @@ Guest mode (public `/api/guest/*` routes, a signed guest token, a Vercel BotID c
 
 - **The work is kept**, not lost: branch `backup/guest-attempt-20261127`, tag `guest-attempt-20261127`, both at `db189b1`. Nothing was force-pushed and no history was rewritten; the rollback is a revert commit on top.
 - **Why it was rolled back:** the deployed app started returning `500` on `/api/question` ("Could not reach the server. Check your connection."). The cause was **not** guest mode — the Vercel production deployment was pointed at the Neon `production` branch, which still had only migrations `0000`–`0001`, so `rate_buckets` (`0004`), `feedback.prompt_version` (`0002`) and `vocab_notebook.next_review` (`0003`) were all missing. Guest mode's own `0006` was one symptom among four, not the disease.
-- **Before retrying**, apply `0002`–`0005` to the `production` branch. Guest mode will fail the same way again if the schema a deployment reads is behind the code it is running.
+- **Before retrying**, note that `0002`–`0005` have since been applied to `production` (27 Nov), so the original blocker is gone. Run `npm run db:check` against production first anyway, and apply guest mode's own `0006` before deploying it.
 
 See `ROLLBACK_NOTES.md` for the full account and the retry checklist.
