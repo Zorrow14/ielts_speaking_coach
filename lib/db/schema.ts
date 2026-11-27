@@ -85,6 +85,8 @@ export const sessions = pgTable(
   (t) => [
     check("sessions_part_valid", sql`${t.part} between 1 and 3`),
     index("sessions_user_started_idx").on(t.userId, t.startedAt),
+    /** Phase 4: progress filtered to one part. */
+    index("sessions_user_part_idx").on(t.userId, t.part),
   ],
 );
 
@@ -197,6 +199,10 @@ export const mistakes = pgTable(
   (t) => [
     index("mistakes_answer_idx").on(t.answerId),
     index("mistakes_user_category_idx").on(t.userId, t.category),
+    /** Phase 4: the last-7-days vs previous-7-days repeated-mistake windows. */
+    index("mistakes_user_created_idx").on(t.userId, t.createdAt),
+    /** Phase 4: grouping by the original -> correction pair. */
+    index("mistakes_user_pair_idx").on(t.userId, t.original, t.correction),
   ],
 );
 
@@ -214,11 +220,25 @@ export const vocabNotebook = pgTable(
     sourceAnswerId: uuid("source_answer_id").references(() => answers.id, {
       onDelete: "set null",
     }),
+    /**
+     * Review scheduling, phase 4. Deliberately a fixed ladder rather than a
+     * real spaced-repetition algorithm: 1, 3, 7 then 14 days, reset to the
+     * start on "again". `intervalDays` is the step that produced the current
+     * `nextReview`, which is what lets the next step be chosen without
+     * storing a history.
+     */
+    nextReview: timestamp("next_review", { withTimezone: true }),
+    intervalDays: integer("interval_days").notNull().default(0),
+    reviewCount: integer("review_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("vocab_user_created_idx").on(t.userId, t.createdAt)],
+  (t) => [
+    index("vocab_user_created_idx").on(t.userId, t.createdAt),
+    /** Drives "what is due today" without scanning the notebook. */
+    index("vocab_user_next_review_idx").on(t.userId, t.nextReview),
+  ],
 );
 
 /**

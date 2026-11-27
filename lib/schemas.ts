@@ -486,3 +486,30 @@ export const questionRequestSchema = z.object({
 export const modelAnswerRequestSchema = z.object({
   answerId: z.string().uuid(),
 });
+
+// --- Vocabulary notebook ---------------------------------------------------
+
+export const vocabCreateSchema = z.object({
+  phrase: z.string().trim().min(1).max(200),
+  meaning: z.string().trim().max(500).optional().nullable(),
+  example: z.string().trim().max(1000).optional().nullable(),
+  /** Set when the phrase was captured from a marked answer. */
+  sourceAnswerId: z.string().uuid().optional().nullable(),
+});
+
+export const vocabUpdateSchema = z
+  .object({
+    phrase: z.string().trim().min(1).max(200).optional(),
+    meaning: z.string().trim().max(500).optional().nullable(),
+    example: z.string().trim().max(1000).optional().nullable(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Nothing to update",
+  });
+
+export const vocabReviewSchema = z.object({
+  result: z.enum(["got_it", "again"]),
+});
+
+export const VOCAB_SOURCES = ["all", "feedback", "manual"] as const;
+export const vocabSourceSchema = z.enum(VOCAB_SOURCES);
