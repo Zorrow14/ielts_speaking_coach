@@ -218,8 +218,17 @@ export const mistakes = pgTable(
     index("mistakes_user_category_idx").on(t.userId, t.category),
     /** Phase 4: the last-7-days vs previous-7-days repeated-mistake windows. */
     index("mistakes_user_created_idx").on(t.userId, t.createdAt),
-    /** Phase 4: grouping by the original -> correction pair. */
-    index("mistakes_user_pair_idx").on(t.userId, t.original, t.correction),
+    /**
+     * Phase 4 groups repeated mistakes by the CASE-FOLDED, TRIMMED pair, so
+     * the index has to match that expression. An index on the raw columns
+     * (which is what phase 4 shipped) cannot serve
+     * `group by lower(btrim(original)), lower(btrim(correction))` at all.
+     */
+    index("mistakes_user_pair_folded_idx").on(
+      t.userId,
+      sql`lower(btrim(${t.original}))`,
+      sql`lower(btrim(${t.correction}))`,
+    ),
   ],
 );
 

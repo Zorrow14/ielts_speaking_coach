@@ -101,7 +101,7 @@ describe("data access always filters by user", () => {
     // Catches a query added later that reads a table without scoping it.
     for (const rel of DATA_FILES) {
       const source = readFileSync(join(ROOT, rel), "utf8");
-      const exported = [...source.matchAll(/export async function (\w+)\(([^)]*)\)/gs)];
+      const exported = [...source.matchAll(/export async function (\w+)\(([^)]*)\)/g)];
       assert.ok(exported.length > 0, `${rel} exports no queries`);
       for (const [, name, params] of exported) {
         assert.ok(
@@ -179,7 +179,7 @@ describe("audio and learner text never reach the logs", () => {
       const rel = relative(ROOT, file);
       if (rel.startsWith(join("lib", "log.ts"))) continue;
       const source = readFileSync(file, "utf8");
-      const logCalls = [...source.matchAll(/console\.\w+\(([^;]*)\)/gs)];
+      const logCalls = [...source.matchAll(/console\.\w+\(([^;]*)\)/g)];
       for (const [call] of logCalls) {
         for (const forbidden of [
           "audio",

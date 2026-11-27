@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Phases 1 to 4 are code-complete and committed on `main`, pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
+Phases 1 to 5 are code-complete and committed on `main`, pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
 
 - `lib/gemini/` — the only module that calls Gemini, via the `interactions` API with structured JSON output and `store: false`.
 - `POST /api/question` and `POST /api/evaluate`, both authenticated, both counted against a daily cap.
@@ -12,6 +12,7 @@ Phases 1 to 4 are code-complete and committed on `main`, pushed to https://githu
 - Practice flows for Parts 1, 2 and 3, a results screen, and a history list that reopens saved feedback.
 - Phase 3: a versioned examiner prompt with evidence quotes per criterion, overall computed in code, and deterministic guardrails.
 - Phase 4: progress charts, mistake history, a vocabulary notebook with review mode, and a weekly report — all reading SQL aggregates, none of them making a new Gemini call.
+- Phase 5: an atomic daily cap, a per-minute burst cap, Gemini timeouts and classified failures, idempotent evaluation, structured request logging, security headers, error boundaries, a 69-test suite, and `DEPLOY.md`.
 
 Lint, typecheck and build all pass. What has now been checked against live services:
 
@@ -85,13 +86,16 @@ npm run db:generate  # generate SQL in drizzle/ from schema changes
 npm run db:migrate   # apply pending migrations to the DATABASE_URL target
 npm run db:studio    # drizzle-kit studio, browse the data
 npm run calibrate    # run the fixture transcripts against the real model
+npm run test         # node:test suite (unit, structural, and DB when DATABASE_URL is set)
 ```
 
-The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build`.
+The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build && npm run test`.
 
-Migrations `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts) are applied to the `dev` and `production` branches. **`0002` (phase 3) and `0003` (phase 4) are generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+`npm run test` uses Node's built-in `node:test` runner — **no test-runner dependency**. It compiles with `tsconfig.tests.json` into a gitignored `.testbuild/`, the same trick the calibration harness uses. The database-backed tests (user isolation, the daily-cap race, idempotency) **skip with a reason** when `DATABASE_URL` is unset, so point it at a disposable branch to run them; they insert and then delete throwaway users, so never aim them at production.
 
-`0003` is entirely additive (three `vocab_notebook` columns and four indexes) and safe on populated tables. `0002` is not — see below.
+Migrations `0000` and `0001` are applied to the `dev` and `production` branches. **`0002` (phase 3), `0003` (phase 4), `0004` and `0005` (phase 5) are generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+
+`0003`, `0004` and `0005` are additive and safe on populated tables. `0002` is not — see below. Full procedure, including how to apply to production and how to roll a bad migration back, is in `DEPLOY.md`.
 
 `0002` recreates the `mistake_category` enum rather than extending it, because phase 3 replaced the values wholesale. That drops and recreates the type, so it only succeeds while `mistakes` is empty; it also adds `prompt_version`, `model` and `pronunciation_confidence` as NOT NULL with no default, which likewise requires an empty `feedback`. Both tables were empty when it was generated. If rows exist by the time it runs, the migration needs a data-mapping step first.
 
@@ -128,7 +132,8 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `lib/result-view.ts` — `buildResultView()`, the single shape both the live result and the history page render. Adding a field here makes it appear in both.
 - `lib/gemini/` — `index.ts` is the single entry point (every call, the retry, the key, the temperature); `prompts.ts` now holds only the question and cue-card prompts.
 - `lib/audio.ts` — recording limits and the browser-MIME to Gemini-MIME mapping, shared by the recorder and `/api/evaluate`.
-- `lib/rate-limit.ts` — the daily cap, counted from `api_requests` per UTC day.
+- `lib/rate-limit.ts` — the daily cap and the per-minute burst cap. **Atomic**: one `insert ... on conflict do update ... where used < cap` against `rate_buckets`, so the conflicting row is locked and the limit re-checked against it. Parallel requests cannot both see the last slot. `api_requests` is now only an audit log, not the enforcement path.
+- `lib/log.ts` — structured logging. One JSON line per request with a request id, route, user id, status, duration and error kind, and **never** audio, transcripts, prompts or secrets. `errorResponse()` is how routes reply, so no handler can accidentally return a stack.
 - `lib/db/queries.ts` — every read and write for sessions, answers, feedback and mistakes, including the atomic `db.batch` save.
 - `lib/db/progress.ts` — **all phase 4 aggregation, in SQL**. Moving averages are window functions, the streak is gaps-and-islands, the week comparisons are filtered aggregates. Nothing is averaged in the browser.
 - `lib/db/vocab.ts` — notebook reads and writes plus the 1/3/7/14 day review ladder. Ownership is in the `WHERE` clause of every statement.
@@ -137,26 +142,32 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `components/` — `Recorder.tsx` (microphone and clocks), `PracticeSession.tsx` (the per-part flow), `ResultCard.tsx` (shared by the live result and history), `ModelAnswer.tsx` (the on-demand band 7.5 example).
 - `components/ProgressCharts.tsx` — Chart.js line and bar charts. Series colours are CVD-validated palette slots, dark mode is a separate set of steps rather than an inversion, and the expandable table is **required** (canvas is invisible to screen readers, and three light-mode steps fall below 3:1 contrast).
 - `components/Nav.tsx`, `SaveToNotebook.tsx`, `VocabList.tsx`, `VocabReview.tsx` — the phase 4 client components.
+- `next.config.ts` — security headers and the CSP. `script-src` still needs `'unsafe-inline'` for Next's bootstrap scripts; removing it needs per-request nonces through middleware, and that is recorded as an accepted limitation rather than ignored.
+- `tests/` — `unit/` pins the scoring arithmetic, guardrails and zod rejections; `structure/` reads the source and asserts codebase-wide properties (every route authenticated, every query scoped by user, no secret in a client component); `db/` covers isolation, the cap race and idempotency against a real database.
+- `DEPLOY.md` — environment variables, branch setup, migration procedure, smoke test, rollback, and the backup/recovery notes.
 - `tests/calibration/` — `fixtures.ts` holds hand-written transcripts at known bands, including three in the user's own error profile; `run.ts` scores each three times and reports spread, ordering and inflation. Not part of the app.
 
 ## Current phase
 
-Phase 4: Progress and notebook — code complete, lint/typecheck/build pass.
+Phase 5: Hardening — code complete. Lint, typecheck, build and 69 tests pass.
 
-Phase 3 delivered strict, evidence-based scoring: the versioned prompt in `lib/prompts/evaluate.ts`, 1–3 transcript quotes behind every criterion band (enforced by zod), the overall averaged and half-band rounded in `lib/scoring.ts`, and guardrails that cap a short Part 2 and refuse to score under 15 words. Pronunciation is a nullable indicator with a confidence field.
+What changed, and why it matters:
 
-Phase 4 added, all from stored data with no new Gemini call:
+- **The daily cap is now exact under concurrency.** Phase 2 counted rows then inserted, which two parallel requests could both pass. It is now a single atomic statement against `rate_buckets`; verified on a scratch branch, where attempts 1–3 against a cap of 3 returned counters and attempts 4–5 returned nothing.
+- **Evaluation is idempotent** per recording, keyed on a browser-generated `client_token` with a partial unique index. A retry after a timeout that actually succeeded returns the first result instead of marking and charging twice.
+- **Every Gemini call has a 55s timeout**, the SDK's own retry policy is off, and failures are classified (`quota`, `overloaded`, `timeout`, `safety`, `bad_request`, `auth`). A quota error is never retried.
+- **A failed upload keeps the audio in memory** so "Try again" re-sends it. Memory only — never a file, never storage.
+- **The recorder handles a microphone lost mid-answer and a hidden tab or locked screen**, keeping what was captured and saying what happened.
 
-- `GET /api/progress`, and pages for progress, mistakes, vocabulary and a weekly report.
-- Chart.js charts with a 5-answer moving average, "not enough data yet" under three answers, and dashed rules where the prompt version changed.
-- Mistake history grouped by category and by original→correction pair, with last-7 vs previous-7 counts and a "Fix these first" list from the last 14 days.
-- A vocabulary notebook: one-tap save from any correction, search, feedback/manual filter, and review mode on a 1/3/7/14 day ladder.
-- Mobile nav across all six sections.
+Known limitations, recorded rather than hidden:
 
-**Verified against a real database.** The phase 4 SQL was executed on a throwaway Neon branch (`sqlcheck-phase4`, created from `production`) with both pending migrations applied and 12 seeded answers: moving averages skip nulls rather than zeroing them, the streak counts 12 consecutive days, case and whitespace variants group into one repeated pair, and baseline/week-over-week figures come out correct. **That scratch branch still exists and should be deleted.**
+- `script-src 'unsafe-inline'` remains in the CSP (see `next.config.ts`).
+- Audio duration is client-reported and only range-checked; the byte limit is the real server-side guard, because the server cannot measure duration without decoding.
+- The notebook search uses `ILIKE '%...%'`, which no btree index can serve. Fine at this size; `pg_trgm` would be the fix if it ever is not.
+- Nothing has been exercised on a real phone yet.
 
-Remaining before phase 4 can be called done: apply `0002` and `0003` to `dev`, then record at least 10 real answers and walk the "done when" list.
+Remaining before phase 5 can be called done: apply `0002`–`0005` to `dev`, run `npm run test` with `DATABASE_URL` pointed at a disposable branch so the database tests actually execute, and walk the smoke test in `DEPLOY.md` on a phone.
 
-**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier. `npm run calibrate` is the tool for revisiting it: run it against both and compare ordering and spread.
+**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier. `npm run calibrate` is the tool for revisiting it.
 
-Phase 5 is hardening, per the plan: mic permission and upload failures, the daily cap, and mobile layout. Much of that already exists from phase 2 and wants verifying on a real phone rather than rebuilding.
+The plan's five phases are now all built. Anything further is new scope: the Gemini Live API, a second user, or the two calibration fixtures whose intended bands are still disputed (`tests/calibration/README.md`).
