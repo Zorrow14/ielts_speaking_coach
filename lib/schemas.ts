@@ -513,3 +513,21 @@ export const vocabReviewSchema = z.object({
 
 export const VOCAB_SOURCES = ["all", "feedback", "manual"] as const;
 export const vocabSourceSchema = z.enum(VOCAB_SOURCES);
+
+// --- Guest mode ------------------------------------------------------------
+
+/**
+ * A guest question request.
+ *
+ * `avoidTopics` is sent BY THE CLIENT, from its own in-memory list of topics
+ * already used this visit. The owner's version of this reads recent topics
+ * from the database; a guest has no history to read, and giving them one would
+ * mean storing their content. Bounded so the list cannot be used to stuff the
+ * prompt.
+ */
+export const guestQuestionRequestSchema = z.object({
+  part: partSchema,
+  avoidTopics: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  previousQuestion: z.string().max(2000).optional(),
+  previousTranscript: z.string().max(20000).optional(),
+});

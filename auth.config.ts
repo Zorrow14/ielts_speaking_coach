@@ -26,6 +26,26 @@ export const authConfig = {
       // no sensitive detail - see app/api/health/route.ts.
       if (pathname === "/api/health") return true;
 
+      /**
+       * Guest mode is public by design, and its own routes do their own
+       * gating: a kill switch, a bot check at /api/guest/start, and a signed
+       * token on the others. Letting them past this middleware is therefore
+       * not a hole - but note that NONE of these paths may read owner data,
+       * and none of them do.
+       *
+       * The privacy and terms pages must be readable before anyone decides
+       * to speak into a microphone, so they are public too.
+       */
+      if (
+        pathname === "/guest" ||
+        pathname.startsWith("/guest/") ||
+        pathname.startsWith("/api/guest/") ||
+        pathname === "/privacy" ||
+        pathname === "/terms"
+      ) {
+        return true;
+      }
+
       if (pathname === "/login") {
         return signedIn
           ? Response.redirect(new URL("/", request.nextUrl))

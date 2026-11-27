@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { NextConfig } from "next";
+import { withBotId } from "botid/next/config";
 
 /**
  * Security headers.
@@ -10,6 +11,10 @@ import type { NextConfig } from "next";
  *   flight-data scripts. Removing 'unsafe-inline' needs per-request nonces
  *   through middleware, which is a bigger change than hardening should make -
  *   noted as an accepted limitation rather than silently ignored.
+ * - Vercel BotID serves its invisible challenge from the app's own origin
+ *   (withBotId rewrites a path under /), so it needs no extra script-src
+ *   host. If a future BotID version loads from a Vercel domain, this is the
+ *   line that would have to change.
  * - `style-src` allows inline styles because next/font injects them.
  * - `connect-src 'self'` is enough: the browser never calls Gemini or Neon
  *   directly, which is the whole point of the server-only boundary.
@@ -54,7 +59,7 @@ const SECURITY_HEADERS = [
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
 ];
 
-const nextConfig: NextConfig = {
+const baseConfig: NextConfig = {
   // Pin the workspace root: an unrelated package-lock.json in the home
   // directory otherwise makes Turbopack guess wrong.
   turbopack: { root: path.resolve(__dirname) },
@@ -78,4 +83,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * withBotId adds the rewrites that serve BotID's client challenge from this
+ * origin. It must wrap the config, not be merged into it.
+ */
+export default withBotId(baseConfig);

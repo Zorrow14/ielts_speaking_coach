@@ -9,6 +9,7 @@
  */
 import {
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -313,6 +314,43 @@ export const rateBuckets = pgTable(
   (t) => [
     primaryKey({ columns: [t.userId, t.kind, t.bucketStart] }),
     index("rate_buckets_started_idx").on(t.bucketStart),
+  ],
+);
+
+/**
+ * Anonymous guest usage counters. The ONLY table guest traffic ever touches.
+ *
+ * What is deliberately NOT here: no raw IP, no user agent, no guest id in the
+ * clear, no audio, no transcript, no question, no feedback, no foreign key to
+ * anything. A row is a number and nothing else.
+ *
+ * `subject` is an HMAC of either the guest token id or the caller's IP, taken
+ * with a salt that includes the day. That has two consequences, both wanted:
+ * the raw value cannot be recovered, and the same guest on two different days
+ * produces two unrelated hashes - so these rows cannot be joined across days
+ * to build a history of anyone.
+ *
+ * Rows are deleted once they are over a day old (lazily, on write), by which
+ * point the salt has rotated and they are meaningless anyway.
+ *
+ * Increments are atomic, using the same `on conflict ... where count < limit`
+ * pattern as lib/rate-limit.ts, so parallel guests cannot exceed a limit.
+ */
+export const guestUsage = pgTable(
+  "guest_usage",
+  {
+    /** HMAC-SHA256 of the token id or IP, salted with the day. Never reversible. */
+    subject: text("subject").notNull(),
+    /** The UTC day this count belongs to. */
+    day: date("day").notNull(),
+    /** "question", "evaluate", or "global" for the all-guests budget. */
+    endpoint: text("endpoint").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.subject, t.day, t.endpoint] }),
+    /** Drives the lazy cleanup of yesterday's rows. */
+    index("guest_usage_day_idx").on(t.day),
   ],
 );
 
