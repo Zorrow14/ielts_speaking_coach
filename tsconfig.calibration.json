@@ -1,0 +1,22 @@
+{
+  // The calibration harness is a plain Node script, not part of the Next
+  // build. Rather than add a TypeScript runner as a dependency, it is compiled
+  // to CommonJS with the tsc that is already here, then run with node.
+  //
+  // Output goes to .calibration/, which is gitignored.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["esnext", "dom"],
+    "jsx": "react-jsx",
+    "outDir": ".calibration",
+    "incremental": false,
+    "types": ["node"],
+    "plugins": []
+  },
+  "include": ["tests/calibration/**/*.ts", "lib/**/*.ts"],
+  "exclude": ["node_modules", "lib/db/**", "lib/rate-limit.ts"]
+}

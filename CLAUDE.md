@@ -82,11 +82,16 @@ npm run typecheck    # tsc --noEmit
 npm run db:generate  # generate SQL in drizzle/ from schema changes
 npm run db:migrate   # apply pending migrations to the DATABASE_URL target
 npm run db:studio    # drizzle-kit studio, browse the data
+npm run calibrate    # run the fixture transcripts against the real model
 ```
 
 The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build`.
 
-Both migrations — `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts) — are already applied to the `dev` and `production` branches, so `db:migrate` is a no-op until a new one is generated.
+Migrations `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts) are applied to the `dev` and `production` branches. **`0002` (phase 3) is generated but NOT applied** — run `npm run db:migrate` against `dev` first.
+
+`0002` recreates the `mistake_category` enum rather than extending it, because phase 3 replaced the values wholesale. That drops and recreates the type, so it only succeeds while `mistakes` is empty; it also adds `prompt_version`, `model` and `pronunciation_confidence` as NOT NULL with no default, which likewise requires an empty `feedback`. Both tables were empty when it was generated. If rows exist by the time it runs, the migration needs a data-mapping step first.
+
+`npm run calibrate` compiles `tests/calibration` with `tsconfig.calibration.json` (plain tsc to CommonJS in `.calibration/`, gitignored) and runs it on Node. This is deliberately not a test runner: the harness is the only thing that needed one, and compiling with the tsc already present avoided a new dependency. It exits non-zero if band ordering breaks or a fixture scores more than 0.5 above its intended band.
 
 `drizzle-kit migrate` decides what to re-run by comparing the journal's `created_at` against each migration folder's timestamp, not by hash. Note that it normalises CRLF to LF before hashing the SQL file, so a hash computed from the file as it sits on disk (Windows checks these out as CRLF) will not match the stored one.
 
@@ -113,17 +118,30 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `proxy.ts` — route protection (Next 16's rename of `middleware.ts`). Everything is private except `/login` and `/api/auth/*`.
 - `lib/db/index.ts` — `getDb()`, a lazily created Drizzle client over Neon HTTP. Lazy so `next build` works without `DATABASE_URL`.
 - `lib/db/schema.ts` — the six tables. `lib/db/users.ts` — `ensureUser()`, the Auth.js-to-Postgres bridge.
-- `lib/schemas.ts` — zod schemas plus the plainer JSON Schemas sent to Gemini. The two are deliberately different: Gemini ignores constraints like `minLength`, so zod is the real gate.
-- `lib/gemini/` — `index.ts` is the single entry point (both calls, the retry, the key); `prompts.ts` holds the examiner and question prompts.
+- `lib/schemas.ts` — zod schemas plus the plainer JSON Schemas sent to Gemini. The two are deliberately different: Gemini ignores constraints like `minLength`, so zod is the real gate. It is also where the evidence rule is enforced: a criterion band with no quote behind it is rejected.
+- `lib/prompts/evaluate.ts` — **the examiner prompt**, with `PROMPT_VERSION`. Band descriptors, the start-low strictness rule, the evidence requirement, grammar error counting, per-part expectations, pronunciation confidence, and the model-answer prompt. Bump the version on any change that could move scores.
+- `lib/scoring.ts` — the arithmetic and the deterministic guardrails, as named constants at the top of the file. The overall band is computed here, never asked of the model.
+- `lib/result-view.ts` — `buildResultView()`, the single shape both the live result and the history page render. Adding a field here makes it appear in both.
+- `lib/gemini/` — `index.ts` is the single entry point (every call, the retry, the key, the temperature); `prompts.ts` now holds only the question and cue-card prompts.
 - `lib/audio.ts` — recording limits and the browser-MIME to Gemini-MIME mapping, shared by the recorder and `/api/evaluate`.
 - `lib/rate-limit.ts` — the daily cap, counted from `api_requests` per UTC day.
 - `lib/db/queries.ts` — every read and write for sessions, answers, feedback and mistakes, including the atomic `db.batch` save.
-- `components/` — `Recorder.tsx` (microphone and clocks), `PracticeSession.tsx` (the per-part flow), `ResultCard.tsx` (shared by the live result and history).
+- `components/` — `Recorder.tsx` (microphone and clocks), `PracticeSession.tsx` (the per-part flow), `ResultCard.tsx` (shared by the live result and history), `ModelAnswer.tsx` (the on-demand band 7.5 example).
+- `tests/calibration/` — `fixtures.ts` holds hand-written transcripts at known bands, including three in the user's own error profile; `run.ts` scores each three times and reports spread, ordering and inflation. Not part of the app.
 
 ## Current phase
 
-Phase 2: Core speaking loop — code complete; the Gemini calls are confirmed working against the live API. Remaining before phase 2 can be called done: sign in on the deployed app and record one answer through the browser.
+Phase 3: Feedback quality — code complete. Scoring is now strict, evidence-based and arithmetic-free on the model's side:
 
-**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, not because it is the better examiner but because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier — one practice session exceeds that — and returns 503 under load. Revisit this in phase 3: scoring quality is exactly what phase 3 measures, and a weaker model is the likeliest source of inflated bands.
+- The examiner prompt lives in `lib/prompts/evaluate.ts` with a version stored on every feedback row.
+- Every criterion band must quote 1 to 3 extracts from the transcript, and zod rejects one that does not.
+- `overall` is averaged and half-band rounded in `lib/scoring.ts`, in exact integer units.
+- Guardrails: Part 2 under 60s caps Fluency at 5.5; a transcript under 15 words is refused rather than scored.
+- Pronunciation is an indicator with a confidence field, nullable, and labelled in the UI as the least reliable score.
+- A band 7.5 example of the learner's own answer is available on demand after marking, never before.
 
-Phase 3 is next and is where the examiner prompt gets its real work: expand the band descriptors in `lib/gemini/prompts.ts`, then check output against real answers for inflation. The prompt there is marked as a first draft on purpose. Do not start phase 4 (charts, vocabulary notebook) before that.
+Remaining before phase 3 is done: apply migration `0002` to `dev` (`npm run db:migrate`), then record one real answer end to end.
+
+**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, chosen in phase 2 because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier and returns 503 under load. The calibration harness is the tool for revisiting this: run `npm run calibrate` against both models and compare ordering and spread before switching.
+
+Phase 4 is next: progress charts and the vocabulary notebook, both reading what phase 3 now stores. `mistakes.category` is the fixed ten-value list specifically so repeated-mistake counting works without guessing.
