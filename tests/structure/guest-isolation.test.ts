@@ -253,6 +253,43 @@ describe("guest code stores nothing in the browser", () => {
   });
 });
 
+describe("owner routes do not accept a guest token", () => {
+  const OWNER_ROUTES = [
+    join("app", "api", "evaluate", "route.ts"),
+    join("app", "api", "question", "route.ts"),
+    join("app", "api", "model-answer", "route.ts"),
+    join("app", "api", "progress", "route.ts"),
+    join("app", "api", "vocab", "route.ts"),
+    join("app", "api", "vocab", "[id]", "route.ts"),
+    join("app", "api", "vocab", "[id]", "review", "route.ts"),
+  ];
+
+  for (const rel of OWNER_ROUTES) {
+    it(`${rel} knows nothing about guest tokens`, () => {
+      const source = readFileSync(join(ROOT, rel), "utf8");
+      // A guest cookie is not an Auth.js session, so auth() already returns
+      // null for one. This pins that no owner route ever grows a second way
+      // in by reading the guest cookie or the guest guard.
+      for (const forbidden of [
+        "GUEST_COOKIE",
+        "guest_token",
+        "verifyGuestToken",
+        "openGuestRoute",
+        "lib/guest",
+      ]) {
+        assert.ok(
+          !source.includes(forbidden),
+          `${rel} references ${forbidden}; owner routes must be reachable only with an owner session`,
+        );
+      }
+      assert.ok(
+        source.includes("await auth()") || source.includes("currentUserId()"),
+        `${rel} does not resolve an owner session`,
+      );
+    });
+  }
+});
+
 describe("guest content never reaches the logs", () => {
   for (const route of GUEST_ROUTES) {
     it(`${route} logs no content`, () => {

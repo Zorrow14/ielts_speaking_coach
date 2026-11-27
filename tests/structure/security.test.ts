@@ -191,7 +191,19 @@ describe("secrets stay on the server", () => {
       const value = rest.join("=").trim();
       // Non-secret defaults are fine; anything that looks like a credential
       // is not.
-      const isSecret = /KEY|SECRET|TOKEN|PASSWORD|DATABASE_URL/i.test(name);
+      //
+      // The allowlist is deliberately explicit rather than loosening the
+      // pattern: these names contain a scary word but hold a count or a
+      // duration, and spelling them out keeps the check strict for everything
+      // that is not listed. Adding to this list should feel like a decision.
+      const NOT_SECRETS = new Set([
+        "GUEST_EVALUATIONS_PER_TOKEN",
+        "GUEST_QUESTIONS_PER_TOKEN",
+        "GUEST_TOKEN_TTL_HOURS",
+      ]);
+      const isSecret =
+        /KEY|SECRET|TOKEN|PASSWORD|DATABASE_URL/i.test(name.trim()) &&
+        !NOT_SECRETS.has(name.trim());
       if (isSecret) {
         assert.equal(value, "", `${name} has a value in .env.example`);
       }

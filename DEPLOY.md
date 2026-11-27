@@ -27,6 +27,24 @@ into a chat, a commit, an issue, or a log.
 `AUTH_URL` is only needed if Vercel's inferred URL is wrong; normally leave it
 unset.
 
+### Guest mode variables
+
+Guest mode is off until `GUEST_MODE_ENABLED` is exactly `true`. The full list
+with defaults is in `.env.example`; these are the ones worth thinking about
+before you flip it:
+
+| Variable | Default | Why you would change it |
+|---|---|---|
+| `GUEST_MODE_ENABLED` | `false` | The kill switch. Fails closed. The pages that read it render per request, so flipping it in Vercel takes effect on the next request with no redeploy. |
+| `GEMINI_PAID_TIER` | `false` | **Changes what the privacy page tells guests.** Left false, it states that Google may use submitted audio to improve their products and that human reviewers may see it — true of the free tier. Set it only once billing is actually on, in the same change. |
+| `GUEST_GLOBAL_EVALUATIONS` | `100` | The budget that protects the bill, across all guests per UTC day. Worth lowering the first time you share the link. |
+| `GUEST_EVALUATIONS_PER_TOKEN` | `3` | How much one visitor gets. |
+| `GUEST_EVALUATIONS_PER_IP` | `5` | Stops clearing cookies from resetting the allowance. |
+
+Vercel BotID needs no environment variable. BotID Basic is free on all plans;
+Deep Analysis, the ML layer for human-mimicking automation, requires Pro and is
+not available on Hobby, so on Hobby the check is heuristic only.
+
 **Do not create any `NEXT_PUBLIC_*` variable.** Anything with that prefix is
 inlined into the browser bundle. A test in `tests/structure/security.test.ts`
 fails if one appears.
@@ -117,6 +135,23 @@ In order. Stop at the first failure; each one has a distinct cause.
 | 7 | Record one Part 1 answer | A result with evidence quotes under each criterion | See Vercel → Logs and search the `requestId` from the error body. |
 | 8 | `/progress`, `/mistakes`, `/vocab`, `/weekly` | All load, empty states where there is no data | A 500 here is usually an unapplied migration. |
 | 9 | Save a phrase from the result, reload `/vocab` | The phrase is there | Nothing is in `localStorage`; if it vanishes, the POST failed. |
+| 10 | With `GUEST_MODE_ENABLED=true`, open `/guest` signed out | Consent checkbox, then a question once ticked | A 404 means the kill switch is still off. A 503 means BotID could not run — guest mode fails closed on purpose. |
+| 11 | After one guest answer, inspect the database | Only `guest_usage` gained rows | A row in `answers`, `feedback`, `mistakes` or `vocab_notebook` is a bug, not a setting. The SQL is in the guest section below. |
+
+### Checking guest mode stored nothing
+
+```sql
+-- Must all be zero after guest use (assuming you have not practised as owner).
+select
+  (select count(*) from answers)        as answers,
+  (select count(*) from feedback)       as feedback,
+  (select count(*) from mistakes)       as mistakes,
+  (select count(*) from sessions)       as sessions,
+  (select count(*) from vocab_notebook) as vocab;
+
+-- The only thing guest traffic writes. No IP, no text, no content.
+select subject, day, endpoint, count from guest_usage order by day desc;
+```
 
 ---
 
