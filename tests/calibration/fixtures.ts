@@ -77,7 +77,12 @@ export const FIXTURES: Fixture[] = [
     part: 1,
     durationSec: 39,
     question: "How do you usually travel to work or school?",
-    note: "Band 6: short but developed, one clear complex structure, some imprecision.",
+    // FLAGGED by the harness: scores 7.0 consistently, a full band above the
+    // label. On re-reading, the transcript has only one real slip ("ten
+    // minutes walking"), so the model may well be right and my label low.
+    // Left at 6.0 deliberately: relabelling a fixture to match the model is
+    // circular, and this disagreement is worth a human decision.
+    note: "Band 6: short but developed, one clear complex structure, some imprecision. HARNESS DISAGREES: scores 7.0.",
     transcript:
       "I normally take the bus, mainly because the traffic in my city is really terrible and driving would take even longer. The bus stop is about ten minutes walking from my house, so it's convenient enough. If I'm running late, then I'll book a motorbike taxi instead, which is faster but of course more expensive. Honestly I prefer the bus because I can read something on the way.",
   },
@@ -100,7 +105,10 @@ export const FIXTURES: Fixture[] = [
     part: 3,
     durationSec: 88,
     question: "Should governments spend more on primary or university education?",
-    note: "Band 7: takes a position, supports it, hedges appropriately.",
+    // FLAGGED by the harness: scores 8.0 consistently. Same caveat as
+    // b6-part1-transport - this answer is error free and well organised, so
+    // 8.0 is defensible and my 7.0 label may be the thing that is wrong.
+    note: "Band 7: takes a position, supports it, hedges appropriately. HARNESS DISAGREES: scores 8.0.",
     transcript:
       "That's a difficult one, but if I had to choose I'd probably argue for primary education. My reasoning is that the foundations matter enormously. If a child can't read properly by the age of ten, everything after that becomes much harder, and no amount of university funding will fix that gap later on. There's also a fairness argument, in the sense that primary education reaches everyone, whereas university tends to benefit students who are already relatively advantaged. Having said that, I wouldn't want to cut university funding dramatically, because that's where research happens, and research is what drives the economy in the long run. So perhaps the honest answer is that it depends on the country. Somewhere with low literacy rates should clearly prioritise the early years, whereas a wealthier country might get more value from investing at the top end.",
   },

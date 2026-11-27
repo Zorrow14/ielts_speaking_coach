@@ -1,0 +1,138 @@
+rounding rule: 7 cases pass
+IELTS Speaking Coach - calibration run
+prompt version : 2026-11-27.1
+model          : gemini-3.5-flash-lite
+fixtures       : 12
+runs each      : 3
+started        : 2026-11-27T09:00:13.332Z
+
+Intended bands are hand-assigned, not official. This checks consistency
+between runs and relative ordering, not absolute accuracy.
+
+--- b5-part1-hometown  (Part 1, intended 5.0)
+    Band 5: simple forms only, repetition, failed paraphrase, basic linking.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  5.0  5.0  5.0 | 5.0 | 3/3/3     | 7/9      | agreement,countability,tense,articles
+      2 |  5.0  5.0  5.0 | 5.0 | 3/3/3     | 7/9      | agreement,countability,tense,articles
+      3 |  5.0  5.0  5.0 | 5.0 | 3/3/3     | 7/10     | agreement,tense,articles,countability
+    spread: F=0  L=0  G=0  overall=0  mean overall=5.00
+
+--- b5-part2-teacher  (Part 2, intended 5.0)
+    Band 5: a long turn that is mostly listing, slow, with frequent basic errors.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  5.0  5.0  5.0 | 5.0 | 2/2/2     | 10/15    | agreement,countability,tense
+      2 |  5.0  5.0  5.0 | 5.0 | 2/2/2     | 10/15    | agreement,countability,tense
+      3 |  5.0  5.0  5.0 | 5.0 | 2/2/2     | 10/17    | agreement,countability,tense
+    spread: F=0  L=0  G=0  overall=0  mean overall=5.00
+
+--- b6-part1-cooking  (Part 1, intended 6.0)
+    Band 6: develops the answer, clear meaning, frequent errors that do not block it.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  7.0  6.0  6.0 | 6.5 | 2/2/2     | 2/7      | prepositions,agreement
+      2 |  7.0  6.5  6.0 | 6.5 | 2/2/2     | 2/6      | prepositions,agreement
+      3 |  7.0  6.0  6.0 | 6.5 | 2/2/2     | 2/7      | prepositions,agreement
+    spread: F=0  L=0.5  G=0  overall=0  mean overall=6.50
+
+--- b6-part3-technology  (Part 3, intended 6.0)
+    Band 6: engages with the abstract question but leans on repetition and vague vocabulary.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  6.0  6.0  6.0 | 6.0 | 2/2/2     | 4/8      | tense,articles,countability
+      2 |  6.0  6.0  6.0 | 6.0 | 2/2/3     | 5/8      | articles,agreement,tense,countability
+      3 |  6.0  6.0  6.0 | 6.0 | 2/2/3     | 4/7      | articles,countability,agreement,tense
+    spread: F=0  L=0  G=0  overall=0  mean overall=6.00
+
+--- b6-part1-transport  (Part 1, intended 6.0)
+    Band 6: short but developed, one clear complex structure, some imprecision.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  7.0  7.0  7.0 | 7.0 | 2/2/2     | 1/4      | prepositions
+      2 |  7.0  7.0  7.0 | 7.0 | 2/2/2     | 1/4      | prepositions
+      3 |  7.0  7.0  7.0 | 7.0 | 2/2/2     | 1/4      | prepositions
+    spread: F=0  L=0  G=0  overall=0  mean overall=7.00
+
+--- b7-part2-decision  (Part 2, intended 7.0)
+    Band 7: sustained, organised, some less common vocabulary, occasional slips.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  7.0  7.0  7.0 | 7.0 | 3/3/2     | 0/7      | 
+      2 |  7.0  7.0  7.0 | 7.0 | 3/3/2     | 0/7      | 
+      3 |  7.0  7.0  7.0 | 7.0 | 3/3/2     | 0/7      | 
+    spread: F=0  L=0  G=0  overall=0  mean overall=7.00
+
+--- b7-part3-education  (Part 3, intended 7.0)
+    Band 7: takes a position, supports it, hedges appropriately.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  8.0  8.0  8.0 | 8.0 | 3/3/2     | 0/8      | 
+      2 |  8.0  7.5  8.0 | 8.0 | 3/3/3     | 0/8      | 
+      3 |  8.0  7.5  8.0 | 8.0 | 2/3/2     | 0/8      | 
+    spread: F=0  L=0.5  G=0  overall=0  mean overall=8.00
+
+--- b8-part2-skill  (Part 2, intended 8.0)
+    Band 8: fluent, precise, almost error free, hesitation only to think.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  8.0  8.0  8.0 | 8.0 | 2/3/2     | 0/9      | 
+      2 |  8.5  8.0  8.5 | 8.5 | 2/2/2     | 0/10     | 
+      3 |  8.0  8.0  8.0 | 8.0 | 2/2/2     | 0/12     | 
+    spread: F=0.5  L=0  G=0.5  overall=0.5  mean overall=8.17
+
+--- b8-part3-cities  (Part 3, intended 8.0)
+    Band 8: flexible, precise, well organised, natural idiom.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  8.0  8.0  8.0 | 8.0 | 2/2/2     | 0/9      | 
+      2 |  8.0  8.0  8.0 | 8.0 | 2/2/2     | 0/9      | 
+      3 |  8.0  8.0  8.0 | 8.0 | 2/2/2     | 0/9      | 
+    spread: F=0  L=0  G=0  overall=0  mean overall=8.00
+
+--- profile-part1-freetime  (Part 1, intended 6.0)
+    Error profile: articles, prepositions, uncountables, repeated 'mostly' and 'learn about'.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  6.5  6.0  5.5 | 6.0 | 3/3/3     | 5/5      | articles,countability,prepositions,agreement,tense
+      2 |  6.0  6.0  5.0 | 5.5 | 3/3/3     | 5/5      | articles,countability,agreement,prepositions
+      3 |  6.5  6.0  5.5 | 6.0 | 2/2/3     | 5/5      | articles,countability,agreement,tense,prepositions
+    spread: F=0.5  L=0  G=0.5  overall=0.5  mean overall=5.83
+
+--- profile-part2-website  (Part 2, intended 6.0)
+    Error profile at length: written-style sentences, article and uncountable errors sustained.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  6.0  6.0  6.0 | 6.0 | 2/2/2     | 5/7      | articles,countability,tense
+      2 |  6.0  6.0  6.0 | 6.0 | 2/2/2     | 5/7      | articles,countability,tense
+      3 |  6.0  6.0  6.0 | 6.0 | 2/2/2     | 5/7      | articles,countability,agreement,tense,prepositions
+    spread: F=0  L=0  G=0  overall=0  mean overall=6.00
+
+--- profile-part3-internet  (Part 3, intended 6.0)
+    Error profile on an abstract question: good ideas, persistent surface errors.
+    run |  F    L    G   | ovr | ev(F/L/G) | err sent | types
+      1 |  6.0  6.0  6.0 | 6.0 | 2/2/3     | 4/5      | articles,agreement,countability
+      2 |  6.0  6.0  6.0 | 6.0 | 2/2/3     | 4/5      | articles,agreement,countability,prepositions
+      3 |  6.0  6.0  6.0 | 6.0 | 2/2/3     | 5/5      | articles,agreement,countability,prepositions,tense
+    spread: F=0  L=0  G=0  overall=0  mean overall=6.00
+
+========================================================================
+SUMMARY
+========================================================================
+
+fixture                      part  intended  mean overall  delta  max spread
+b5-part1-hometown            1     5.0       5.00      +0.00   0.0
+b5-part2-teacher             2     5.0       5.00      +0.00   0.0
+b6-part1-cooking             1     6.0       6.50      +0.50   0.5
+b6-part3-technology          3     6.0       6.00      +0.00   0.0
+b6-part1-transport           1     6.0       7.00      +1.00   0.0
+b7-part2-decision            2     7.0       7.00      +0.00   0.0
+b7-part3-education           3     7.0       8.00      +1.00   0.5
+b8-part2-skill               2     8.0       8.17      +0.17   0.5
+b8-part3-cities              3     8.0       8.00      +0.00   0.0
+profile-part1-freetime       1     6.0       5.83      -0.17   0.5
+profile-part2-website        2     6.0       6.00      +0.00   0.0
+profile-part3-internet       3     6.0       6.00      +0.00   0.0
+
+INFLATION (mean overall more than 0.5 above intended)
+  b6-part1-transport: intended 6.0, scored 7.00 (+1.00)
+  b7-part3-education: intended 7.0, scored 8.00 (+1.00)
+
+ORDERING (mean overall per intended band)
+  intended 5.0 (2 fixtures): 5.00
+  intended 6.0 (6 fixtures): 6.22
+  intended 7.0 (2 fixtures): 7.50
+  intended 8.0 (2 fixtures): 8.08
+  order preserved: YES
+
+failed calls: 0
+finished    : 2026-11-27T09:04:24.355Z
