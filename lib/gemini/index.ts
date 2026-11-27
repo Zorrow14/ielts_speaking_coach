@@ -61,6 +61,100 @@ export class GeminiOutputError extends Error {
   }
 }
 
+/**
+ * Why a Gemini call failed, mapped to something the caller can act on.
+ *
+ * `quota` is deliberately separate from `overloaded`: retrying an overloaded
+ * model may work, retrying a quota error cannot, and burning a second request
+ * to confirm that is exactly what the daily cap exists to prevent.
+ */
+export type GeminiFailureKind =
+  | "quota"
+  | "overloaded"
+  | "timeout"
+  | "safety"
+  | "bad_request"
+  | "auth"
+  | "unknown";
+
+export class GeminiCallError extends Error {
+  readonly kind: GeminiFailureKind;
+  readonly status?: number;
+
+  constructor(kind: GeminiFailureKind, message: string, status?: number) {
+    super(message);
+    this.name = "GeminiCallError";
+    this.kind = kind;
+    this.status = status;
+  }
+
+  /** True when a second attempt could plausibly succeed. */
+  get retryable(): boolean {
+    return this.kind === "overloaded";
+  }
+}
+
+/** How long to wait for one Gemini call before giving up. */
+export const GEMINI_TIMEOUT_MS = 55_000;
+
+/** Turns an SDK rejection into a classified error. Never includes the key. */
+export function classifyGeminiError(cause: unknown): GeminiCallError {
+  const status =
+    typeof cause === "object" && cause !== null && "status" in cause
+      ? Number((cause as { status: unknown }).status)
+      : undefined;
+  const raw = cause instanceof Error ? cause.message : String(cause);
+  // Lower-cased for matching only; the raw text is never sent to the client.
+  const text = raw.toLowerCase();
+
+  if (cause instanceof Error && cause.name === "TimeoutError") {
+    return new GeminiCallError("timeout", "Gemini did not respond in time.");
+  }
+  if (
+    text.includes("aborted") ||
+    text.includes("timed out") ||
+    text.includes("timeout")
+  ) {
+    return new GeminiCallError("timeout", "Gemini did not respond in time.");
+  }
+  if (status === 429 || text.includes("rate limit") || text.includes("quota")) {
+    return new GeminiCallError(
+      "quota",
+      "Gemini refused the request: rate limit or quota reached.",
+      status,
+    );
+  }
+  if (status === 503 || status === 500 || text.includes("high demand")) {
+    return new GeminiCallError(
+      "overloaded",
+      "Gemini is overloaded right now.",
+      status,
+    );
+  }
+  if (status === 401 || status === 403) {
+    return new GeminiCallError(
+      "auth",
+      "Gemini rejected the API key.",
+      status,
+    );
+  }
+  if (text.includes("safety") || text.includes("blocked")) {
+    return new GeminiCallError(
+      "safety",
+      "Gemini blocked the content of that request.",
+      status,
+    );
+  }
+  if (status === 400 || status === 404 || status === 422) {
+    return new GeminiCallError(
+      "bad_request",
+      "Gemini rejected the shape of the request.",
+      status,
+    );
+  }
+  return new GeminiCallError("unknown", "Gemini call failed.", status);
+}
+
 let cached: GoogleGenAI | undefined;
 
 function client(): GoogleGenAI {
@@ -130,21 +224,39 @@ async function generateJson<T extends z.ZodTypeAny>(options: {
 
   let lastProblem = "";
 
+  // At most two attempts in total, shared between transport failures and
+  // schema failures. A quota error ends the loop immediately.
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const interaction = await client().interactions.create({
-      model: modelName(),
-      system_instruction: options.systemInstruction,
-      input,
-      store: false,
-      ...(options.generationConfig
-        ? { generation_config: options.generationConfig }
-        : {}),
-      response_format: {
-        type: "text",
-        mime_type: "application/json",
-        schema: options.jsonSchema,
-      },
-    });
+    let interaction;
+    try {
+      interaction = await client().interactions.create(
+        {
+          model: modelName(),
+          system_instruction: options.systemInstruction,
+          input,
+          store: false,
+          ...(options.generationConfig
+            ? { generation_config: options.generationConfig }
+            : {}),
+          response_format: {
+            type: "text",
+            mime_type: "application/json",
+            schema: options.jsonSchema,
+          },
+        },
+        {
+          timeout_ms: GEMINI_TIMEOUT_MS,
+          // Retries are handled here, once, and never for quota errors - the
+          // SDK's own backoff would quietly spend extra quota.
+          retries: { strategy: "none" },
+        },
+      );
+    } catch (cause) {
+      const error = classifyGeminiError(cause);
+      if (!error.retryable || attempt === 2) throw error;
+      lastProblem = error.message;
+      continue;
+    }
 
     const text = interaction.output_text;
     if (!text) {

@@ -23,26 +23,32 @@ import {
   weekComparison,
   weeklyAverages,
 } from "@/lib/db/progress";
+import { RequestLog, errorResponse } from "@/lib/log";
 import { partSchema } from "@/lib/schemas";
 import { APP_TIME_ZONE } from "@/lib/time";
 
 export async function GET(request: Request) {
+  const log = new RequestLog("/api/progress", "GET");
+
   const session = await auth();
   const email = session?.user?.email;
   if (!email) {
-    return Response.json({ error: "Not signed in." }, { status: 401 });
+    return errorResponse(log, 401, "Not signed in.", {
+      errorKind: "unauthenticated",
+    });
   }
   const userId = session.user.id ?? (await ensureUser(email));
+  log.setUser(userId);
 
   const raw = new URL(request.url).searchParams.get("part");
   let part: 1 | 2 | 3 | undefined;
   if (raw !== null && raw !== "" && raw !== "all") {
     const parsed = partSchema.safeParse(Number(raw));
     if (!parsed.success) {
-      return Response.json(
-        { error: "part must be 1, 2, 3 or omitted." },
-        { status: 400 },
-      );
+      return errorResponse(log, 400, "part must be 1, 2, 3 or omitted.", {
+        errorKind: "validation",
+        detail: "bad part",
+      });
     }
     part = parsed.data;
   }
@@ -72,7 +78,8 @@ export async function GET(request: Request) {
       weekComparison(userId, part),
     ]);
 
-    return Response.json({
+    return log.finish(
+      Response.json({
       timeZone: APP_TIME_ZONE,
       part: part ?? null,
       series,
@@ -84,14 +91,17 @@ export async function GET(request: Request) {
       baseline: base,
       promptVersions: prompts,
       weeks,
-    });
+      }),
+    );
   } catch (error) {
-    console.error("GET /api/progress failed", {
-      message: error instanceof Error ? error.message : "unknown error",
-    });
-    return Response.json(
-      { error: "Could not load your progress. Try again in a moment." },
-      { status: 500 },
+    return errorResponse(
+      log,
+      500,
+      "Could not load your progress. Try again in a moment.",
+      {
+        errorKind: "unexpected",
+        detail: error instanceof Error ? error.message : "unknown error",
+      },
     );
   }
 }

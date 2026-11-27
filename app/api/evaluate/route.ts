@@ -4,93 +4,182 @@
  * The audio bytes live only in this function's scope. They are never written
  * to disk, never put in a database column, and never logged - not even their
  * length in an error path.
+ *
+ * Idempotent per recording. The browser sends a `clientToken` (one UUID per
+ * recording, not per attempt), and:
+ *
+ *   - if that token already has a marked answer, the saved result is returned
+ *     without calling Gemini and without spending quota;
+ *   - if two identical requests race, the unique index on
+ *     (user_id, client_token) makes the loser fall back to the winner's row.
+ *
+ * So a double tap, or a retry after a timeout where the first call actually
+ * succeeded, cannot create duplicate rows or double-count the daily cap.
  */
 import { auth } from "@/auth";
-import { MAX_AUDIO_BYTES, normaliseAudioMime } from "@/lib/audio";
+import { MAX_AUDIO_BYTES, MAX_RECORDING_MS, normaliseAudioMime } from "@/lib/audio";
 import {
   createSession,
+  getAnswerByClientToken,
+  isUniqueViolation,
   saveEvaluation,
   sessionBelongsToUser,
 } from "@/lib/db/queries";
 import { ensureUser } from "@/lib/db/users";
-import { evaluateAnswer, GeminiOutputError } from "@/lib/gemini";
+import { GeminiCallError, GeminiOutputError, evaluateAnswer } from "@/lib/gemini";
+import { RequestLog, errorResponse } from "@/lib/log";
 import { consumeDailyAllowance } from "@/lib/rate-limit";
+import { buildResultView } from "@/lib/result-view";
 import { partSchema } from "@/lib/schemas";
 import { score, tooShortToScore } from "@/lib/scoring";
 
+/**
+ * Vercel function timeout, in seconds.
+ *
+ * 60 is the ceiling on Vercel's Hobby plan (Pro allows up to 300). The Gemini
+ * timeout is 55s, so a slow model produces our own clear error rather than
+ * Vercel's opaque 504. If this app ever moves to Pro, both numbers can rise
+ * together - but not this one alone.
+ */
+export const maxDuration = 60;
+
+/** Client-reported duration we are willing to believe, with slack for the tail chunk. */
+const MAX_REPORTED_DURATION_SEC = Math.ceil(MAX_RECORDING_MS / 1000) + 20;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function POST(request: Request) {
+  const log = new RequestLog("/api/evaluate", "POST");
+
   const session = await auth();
   const email = session?.user?.email;
   if (!email) {
-    return Response.json({ error: "Not signed in." }, { status: 401 });
+    return errorResponse(log, 401, "Not signed in.", { errorKind: "unauthenticated" });
   }
   const userId = session.user.id ?? (await ensureUser(email));
+  log.setUser(userId);
 
   let form: FormData;
   try {
     form = await request.formData();
   } catch {
-    return Response.json(
-      { error: "Expected the recording as form data." },
-      { status: 400 },
-    );
+    return errorResponse(log, 400, "Expected the recording as form data.", {
+      errorKind: "validation",
+      detail: "formData parse failed",
+    });
   }
 
   const audio = form.get("audio");
   if (!(audio instanceof File) || audio.size === 0) {
-    return Response.json(
-      { error: "No recording was attached." },
-      { status: 400 },
-    );
+    return errorResponse(log, 400, "No recording was attached.", {
+      errorKind: "validation",
+      detail: "missing audio",
+    });
   }
   if (audio.size > MAX_AUDIO_BYTES) {
-    return Response.json(
-      {
-        error:
-          "That recording is too large to upload. Keep answers under three minutes.",
-      },
-      { status: 413 },
+    return errorResponse(
+      log,
+      413,
+      "That recording is too large to upload. Keep answers under three minutes.",
+      { errorKind: "validation", detail: "audio over size limit" },
     );
   }
 
   const mimeType = normaliseAudioMime(audio.type);
   if (!mimeType) {
-    return Response.json(
-      {
-        error:
-          "Your browser recorded in a format this app cannot send for marking. Try Chrome, Edge or Safari.",
-      },
-      { status: 415 },
+    return errorResponse(
+      log,
+      415,
+      "Your browser recorded in a format this app cannot send for marking. Try Chrome, Edge or Safari.",
+      { errorKind: "validation", detail: "unsupported audio mime" },
     );
   }
 
   const question = (form.get("question") ?? "").toString().trim();
-  if (!question) {
-    return Response.json(
-      { error: "The question that was asked is missing." },
-      { status: 400 },
-    );
+  if (!question || question.length > 4000) {
+    return errorResponse(log, 400, "The question that was asked is missing.", {
+      errorKind: "validation",
+      detail: "question missing or too long",
+    });
   }
 
   const parsedPart = partSchema.safeParse(Number(form.get("part")));
   if (!parsedPart.success) {
-    return Response.json({ error: "Part must be 1, 2 or 3." }, { status: 400 });
+    return errorResponse(log, 400, "Part must be 1, 2 or 3.", {
+      errorKind: "validation",
+      detail: "bad part",
+    });
   }
   const part = parsedPart.data;
 
-  const durationSec = Math.max(
-    0,
-    Math.round(Number(form.get("durationSec") ?? 0)) || 0,
-  );
-  const topic = (form.get("topic") ?? "").toString().trim() || null;
+  /**
+   * Duration is client-reported, so it is clamped rather than trusted. It only
+   * feeds the Part 2 length guardrail and the display; the real defence
+   * against an oversized upload is the byte limit above, which the server can
+   * actually verify.
+   */
+  const reportedDuration = Math.round(Number(form.get("durationSec") ?? 0));
+  if (
+    !Number.isFinite(reportedDuration) ||
+    reportedDuration < 0 ||
+    reportedDuration > MAX_REPORTED_DURATION_SEC
+  ) {
+    return errorResponse(
+      log,
+      400,
+      "That recording length does not look right. Record the answer again.",
+      { errorKind: "validation", detail: "duration out of range" },
+    );
+  }
+  const durationSec = reportedDuration;
+
+  const topicRaw = (form.get("topic") ?? "").toString().trim();
+  const topic = topicRaw ? topicRaw.slice(0, 200) : null;
+
+  const tokenRaw = (form.get("clientToken") ?? "").toString().trim();
+  if (tokenRaw && !UUID.test(tokenRaw)) {
+    return errorResponse(log, 400, "Bad request.", {
+      errorKind: "validation",
+      detail: "clientToken not a uuid",
+    });
+  }
+  const clientToken = tokenRaw || null;
+
+  // Idempotency: an already-marked recording is returned as-is. Checked before
+  // the quota is touched, so a retry is free.
+  if (clientToken) {
+    const existing = await getAnswerByClientToken(userId, clientToken);
+    if (existing) {
+      log.note("evaluate_idempotent_hit", { answerId: existing.answerId });
+      return log.finish(
+        Response.json({
+          sessionId: existing.sessionId,
+          answerId: existing.answerId,
+          view: existing.view,
+          transcript: existing.transcript,
+          durationSec: existing.durationSec,
+          wordCount: existing.wordCount,
+          idempotent: true,
+        }),
+      );
+    }
+  }
 
   // An existing session is reused; the first answer of an attempt creates one.
   let sessionId = (form.get("sessionId") ?? "").toString().trim();
   if (sessionId) {
+    if (!UUID.test(sessionId)) {
+      return errorResponse(log, 400, "Bad request.", {
+        errorKind: "validation",
+        detail: "sessionId not a uuid",
+      });
+    }
     if (!(await sessionBelongsToUser(sessionId, userId))) {
-      return Response.json(
-        { error: "That practice session does not belong to you." },
-        { status: 403 },
+      return errorResponse(
+        log,
+        403,
+        "That practice session does not belong to you.",
+        { errorKind: "forbidden" },
       );
     }
   } else {
@@ -99,7 +188,10 @@ export async function POST(request: Request) {
 
   const allowance = await consumeDailyAllowance(userId, "evaluate");
   if (!allowance.allowed) {
-    return Response.json({ error: allowance.message }, { status: 429 });
+    return errorResponse(log, 429, allowance.message, {
+      errorKind: `quota_${allowance.limit}`,
+      extra: { sessionId },
+    });
   }
 
   try {
@@ -112,13 +204,11 @@ export async function POST(request: Request) {
     });
 
     if (!evaluation.transcript.trim()) {
-      return Response.json(
-        {
-          error:
-            "No speech was picked up in that recording. Check your microphone and try again.",
-          sessionId,
-        },
-        { status: 422 },
+      return errorResponse(
+        log,
+        422,
+        "No speech was picked up in that recording. Check your microphone and try again.",
+        { errorKind: "no_speech", extra: { sessionId } },
       );
     }
 
@@ -126,63 +216,130 @@ export async function POST(request: Request) {
     // scored, because a band from six words is noise dressed as a number.
     const tooShort = tooShortToScore(evaluation.transcript);
     if (tooShort) {
-      return Response.json(
-        { error: tooShort.message, sessionId, transcript: evaluation.transcript },
-        { status: 422 },
-      );
+      return errorResponse(log, 422, tooShort.message, {
+        errorKind: "too_short",
+        extra: { sessionId, transcript: evaluation.transcript },
+      });
     }
 
     // Bands and overall are computed here, never taken from the model.
     const scored = score({ evaluation, part, durationSec });
     if (!scored) {
-      return Response.json(
-        {
-          error:
-            "The examiner could not score that answer. Try recording it again.",
-          sessionId,
-        },
-        { status: 502 },
+      return errorResponse(
+        log,
+        502,
+        "The examiner could not score that answer. Try recording it again.",
+        { errorKind: "unscorable", extra: { sessionId } },
       );
     }
 
-    const answerId = await saveEvaluation({
-      userId,
-      sessionId,
-      question,
-      durationSec,
-      evaluation,
-      scored,
-      provenance,
-    });
+    let answerId: string;
+    try {
+      answerId = await saveEvaluation({
+        userId,
+        sessionId,
+        question,
+        durationSec,
+        evaluation,
+        scored,
+        provenance,
+        clientToken,
+      });
+    } catch (cause) {
+      // Two identical requests raced and the other one won. Return its result
+      // rather than an error - the work was done, just not by us.
+      if (clientToken && isUniqueViolation(cause)) {
+        const winner = await getAnswerByClientToken(userId, clientToken);
+        if (winner) {
+          log.warn("evaluate_idempotent_race", { answerId: winner.answerId });
+          return log.finish(
+            Response.json({
+              sessionId: winner.sessionId,
+              answerId: winner.answerId,
+              view: winner.view,
+              transcript: winner.transcript,
+              durationSec: winner.durationSec,
+              wordCount: winner.wordCount,
+              idempotent: true,
+            }),
+          );
+        }
+      }
+      throw cause;
+    }
 
-    return Response.json({
-      sessionId,
-      answerId,
-      evaluation,
-      scored,
-      provenance,
-      usage: { used: allowance.used, cap: allowance.cap },
-    });
+    return log.finish(
+      Response.json({
+        sessionId,
+        answerId,
+        view: buildResultView({ evaluation, scored, provenance }),
+        transcript: evaluation.transcript,
+        durationSec,
+        wordCount: evaluation.transcript.trim().split(/\s+/).length,
+        usage: { used: allowance.used, cap: allowance.cap },
+      }),
+    );
   } catch (error) {
     if (error instanceof GeminiOutputError) {
-      return Response.json(
-        {
-          error:
-            "The examiner could not produce a usable mark for that answer. Try recording it again.",
-          sessionId,
-        },
-        { status: 502 },
+      return errorResponse(
+        log,
+        502,
+        "The examiner could not produce a usable mark for that answer. Try recording it again.",
+        { errorKind: "gemini_output", extra: { sessionId } },
       );
     }
-    console.error("POST /api/evaluate failed", {
-      message: error instanceof Error ? error.message : "unknown error",
-    });
-    return Response.json(
+
+    if (error instanceof GeminiCallError) {
+      return errorResponse(log, geminiStatus(error), geminiMessage(error), {
+        errorKind: `gemini_${error.kind}`,
+        detail: error.message,
+        extra: { sessionId },
+      });
+    }
+
+    return errorResponse(
+      log,
+      502,
+      "Marking failed. Your answer was not saved - try again.",
       {
-        error: "Marking failed. Your answer was not saved - try again.",
-        sessionId,
+        errorKind: "unexpected",
+        detail: error instanceof Error ? error.message : "unknown error",
+        extra: { sessionId },
       },
-      { status: 502 },
     );
+  }
+}
+
+/** HTTP status that matches the real cause, so retries can be automatic or not. */
+function geminiStatus(error: GeminiCallError): number {
+  switch (error.kind) {
+    case "quota":
+      return 429;
+    case "timeout":
+      return 504;
+    case "overloaded":
+      return 503;
+    case "safety":
+      return 422;
+    default:
+      return 502;
+  }
+}
+
+/** Wording the learner can act on. Never includes the provider's own text. */
+function geminiMessage(error: GeminiCallError): string {
+  switch (error.kind) {
+    case "quota":
+      return "The AI service has hit its own rate limit. Wait a minute and try again - your answer was not marked, and this does not count against your daily allowance twice.";
+    case "timeout":
+      return "Marking took too long and was stopped. Your recording is still here - press Try again.";
+    case "overloaded":
+      return "The AI service is busy right now. Press Try again in a moment; your recording is kept.";
+    case "safety":
+      return "The AI service refused to mark that recording. Try answering the question again in different words.";
+    case "auth":
+      return "The app's AI credentials are not working. This one needs fixing in the server settings, not by retrying.";
+    default:
+      return "Marking failed. Your recording is still here - press Try again.";
   }
 }

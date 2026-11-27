@@ -81,6 +81,8 @@ export async function saveEvaluation(input: {
   /** Bands and overall computed in lib/scoring.ts, not by the model. */
   scored: Scored;
   provenance: EvaluationProvenance;
+  /** Idempotency key from the browser; the unique index rejects a repeat. */
+  clientToken?: string | null;
 }): Promise<string> {
   const db = getDb();
   const answerId = randomUUID();
@@ -98,6 +100,7 @@ export async function saveEvaluation(input: {
       transcript,
       durationSec: input.durationSec,
       wordCount,
+      clientToken: input.clientToken ?? null,
     }),
     db.insert(feedback).values({
       id: randomUUID(),
@@ -392,5 +395,77 @@ export async function getAnswerDetail(
       view: rebuildView(row),
     },
     session: { id: row.sessionId, part: row.part, topic: row.topic },
+  };
+}
+
+/** Postgres unique-violation, raised when the same client token is saved twice. */
+export function isUniqueViolation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "23505") return true;
+  const message = error instanceof Error ? error.message : "";
+  return /duplicate key value|unique constraint/i.test(message);
+}
+
+export type SavedResult = {
+  answerId: string;
+  sessionId: string;
+  question: string;
+  transcript: string;
+  durationSec: number | null;
+  wordCount: number | null;
+  view: ResultView | null;
+};
+
+/**
+ * Looks up an already-marked answer by its idempotency token.
+ *
+ * This is what makes /api/evaluate safe to retry: a double tap, or a retry
+ * after a timeout where the first request actually succeeded, finds the
+ * existing result instead of paying for a second evaluation.
+ */
+export async function getAnswerByClientToken(
+  userId: string,
+  clientToken: string,
+): Promise<SavedResult | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: answers.id,
+      sessionId: answers.sessionId,
+      question: answers.question,
+      transcript: answers.transcript,
+      durationSec: answers.durationSec,
+      wordCount: answers.wordCount,
+      fluency: feedback.fluency,
+      lexical: feedback.lexical,
+      grammar: feedback.grammar,
+      pronunciationEst: feedback.pronunciationEst,
+      overall: feedback.overall,
+      guardrails: feedback.guardrails,
+      promptVersion: feedback.promptVersion,
+      model: feedback.model,
+      rawJson: feedback.rawJson,
+    })
+    .from(answers)
+    .leftJoin(
+      feedback,
+      and(eq(feedback.answerId, answers.id), eq(feedback.userId, userId)),
+    )
+    .where(
+      and(eq(answers.userId, userId), eq(answers.clientToken, clientToken)),
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    answerId: row.id,
+    sessionId: row.sessionId,
+    question: row.question,
+    transcript: row.transcript,
+    durationSec: row.durationSec,
+    wordCount: row.wordCount,
+    view: rebuildView(row),
   };
 }

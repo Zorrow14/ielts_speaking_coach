@@ -7,6 +7,7 @@
 import { auth } from "@/auth";
 import { ensureUser } from "@/lib/db/users";
 import { addVocab, listVocab, vocabCounts } from "@/lib/db/vocab";
+import { RequestLog, errorResponse } from "@/lib/log";
 import { vocabCreateSchema, vocabSourceSchema } from "@/lib/schemas";
 
 async function currentUserId(): Promise<string | null> {
@@ -17,10 +18,14 @@ async function currentUserId(): Promise<string | null> {
 }
 
 export async function GET(request: Request) {
+  const log = new RequestLog("/api/vocab", "GET");
   const userId = await currentUserId();
   if (!userId) {
-    return Response.json({ error: "Not signed in." }, { status: 401 });
+    return errorResponse(log, 401, "Not signed in.", {
+      errorKind: "unauthenticated",
+    });
   }
+  log.setUser(userId);
 
   const params = new URL(request.url).searchParams;
   const sourceRaw = params.get("source");
@@ -28,56 +33,62 @@ export async function GET(request: Request) {
     ? vocabSourceSchema.safeParse(sourceRaw)
     : ({ success: true, data: "all" } as const);
   if (!source.success) {
-    return Response.json(
-      { error: "source must be all, feedback or manual." },
-      { status: 400 },
-    );
+    return errorResponse(log, 400, "source must be all, feedback or manual.", {
+      errorKind: "validation",
+      detail: "bad source",
+    });
   }
 
+  // Bounded so a pathological query string cannot drive an expensive ILIKE.
+  const search = (params.get("search") ?? "").slice(0, 200);
+
   const [entries, counts] = await Promise.all([
-    listVocab(userId, {
-      search: params.get("search") ?? undefined,
-      source: source.data,
-    }),
+    listVocab(userId, { search, source: source.data }),
     vocabCounts(userId),
   ]);
 
-  return Response.json({ entries, counts });
+  return log.finish(Response.json({ entries, counts }));
 }
 
 export async function POST(request: Request) {
+  const log = new RequestLog("/api/vocab", "POST");
   const userId = await currentUserId();
   if (!userId) {
-    return Response.json({ error: "Not signed in." }, { status: 401 });
+    return errorResponse(log, 401, "Not signed in.", {
+      errorKind: "unauthenticated",
+    });
   }
+  log.setUser(userId);
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: "Expected a JSON body." }, { status: 400 });
+    return errorResponse(log, 400, "Expected a JSON body.", {
+      errorKind: "validation",
+      detail: "json parse failed",
+    });
   }
 
   const parsed = vocabCreateSchema.safeParse(body);
   if (!parsed.success) {
-    return Response.json(
-      { error: "A phrase is required, up to 200 characters." },
-      { status: 400 },
+    return errorResponse(
+      log,
+      400,
+      "A phrase is required, up to 200 characters.",
+      { errorKind: "validation" },
     );
   }
 
   try {
     const entry = await addVocab(userId, parsed.data);
-    return Response.json({ entry }, { status: 201 });
+    return log.finish(Response.json({ entry }, { status: 201 }));
   } catch (error) {
     // A source_answer_id for somebody else's answer trips the foreign key
     // rather than silently attaching; treat it as a bad request.
-    console.error("POST /api/vocab failed", {
-      message: error instanceof Error ? error.message : "unknown error",
+    return errorResponse(log, 400, "Could not save that phrase.", {
+      errorKind: "insert_rejected",
+      detail: error instanceof Error ? error.message : "unknown error",
     });
-    return Response.json(
-      { error: "Could not save that phrase." },
-      { status: 400 },
-    );
   }
 }

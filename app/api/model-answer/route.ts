@@ -11,48 +11,66 @@
 import { auth } from "@/auth";
 import { getAnswerForUser } from "@/lib/db/queries";
 import { ensureUser } from "@/lib/db/users";
-import { generateModelAnswer, GeminiOutputError } from "@/lib/gemini";
+import {
+  generateModelAnswer,
+  GeminiCallError,
+  GeminiOutputError,
+} from "@/lib/gemini";
+import { RequestLog, errorResponse } from "@/lib/log";
 import { consumeDailyAllowance } from "@/lib/rate-limit";
 import { modelAnswerRequestSchema } from "@/lib/schemas";
 
+export const maxDuration = 45;
+
 export async function POST(request: Request) {
+  const log = new RequestLog("/api/model-answer", "POST");
+
   const session = await auth();
   const email = session?.user?.email;
   if (!email) {
-    return Response.json({ error: "Not signed in." }, { status: 401 });
+    return errorResponse(log, 401, "Not signed in.", {
+      errorKind: "unauthenticated",
+    });
   }
   const userId = session.user.id ?? (await ensureUser(email));
+  log.setUser(userId);
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: "Expected a JSON body." }, { status: 400 });
+    return errorResponse(log, 400, "Expected a JSON body.", {
+      errorKind: "validation",
+      detail: "json parse failed",
+    });
   }
 
   const parsed = modelAnswerRequestSchema.safeParse(body);
   if (!parsed.success) {
-    return Response.json(
-      { error: "Which answer? An answer id is required." },
-      { status: 400 },
-    );
+    return errorResponse(log, 400, "Which answer? An answer id is required.", {
+      errorKind: "validation",
+      detail: "answerId missing or not a uuid",
+    });
   }
 
   // Filtered by user_id, so somebody else's answer id is simply not found.
   const answer = await getAnswerForUser(parsed.data.answerId, userId);
   if (!answer) {
-    return Response.json({ error: "That answer was not found." }, { status: 404 });
+    return errorResponse(log, 404, "That answer was not found.", {
+      errorKind: "not_found",
+    });
   }
   if (!answer.transcript.trim()) {
-    return Response.json(
-      { error: "That answer has no transcript to improve." },
-      { status: 422 },
-    );
+    return errorResponse(log, 422, "That answer has no transcript to improve.", {
+      errorKind: "no_transcript",
+    });
   }
 
   const allowance = await consumeDailyAllowance(userId, "model_answer");
   if (!allowance.allowed) {
-    return Response.json({ error: allowance.message }, { status: 429 });
+    return errorResponse(log, 429, allowance.message, {
+      errorKind: `quota_${allowance.limit}`,
+    });
   }
 
   try {
@@ -61,23 +79,39 @@ export async function POST(request: Request) {
       question: answer.question,
       transcript: answer.transcript,
     });
-    return Response.json({
-      ...modelAnswer,
-      usage: { used: allowance.used, cap: allowance.cap },
-    });
+    return log.finish(
+      Response.json({
+        ...modelAnswer,
+        usage: { used: allowance.used, cap: allowance.cap },
+      }),
+    );
   } catch (error) {
     if (error instanceof GeminiOutputError) {
-      return Response.json(
-        { error: "Could not write a usable example answer. Try again." },
-        { status: 502 },
+      return errorResponse(
+        log,
+        502,
+        "Could not write a usable example answer. Try again.",
+        { errorKind: "gemini_output" },
       );
     }
-    console.error("POST /api/model-answer failed", {
-      message: error instanceof Error ? error.message : "unknown error",
-    });
-    return Response.json(
-      { error: "Could not reach the example generator. Try again in a moment." },
-      { status: 502 },
+    if (error instanceof GeminiCallError) {
+      return errorResponse(
+        log,
+        error.kind === "quota" ? 429 : error.kind === "timeout" ? 504 : 502,
+        error.kind === "quota"
+          ? "The AI service has hit its own rate limit. Wait a minute and try again."
+          : "Could not reach the example generator. Try again in a moment.",
+        { errorKind: `gemini_${error.kind}`, detail: error.message },
+      );
+    }
+    return errorResponse(
+      log,
+      502,
+      "Could not reach the example generator. Try again in a moment.",
+      {
+        errorKind: "unexpected",
+        detail: error instanceof Error ? error.message : "unknown error",
+      },
     );
   }
 }
