@@ -1,0 +1,19 @@
+{
+  // Tests are plain Node scripts using the built-in node:test runner, so they
+  // are compiled to CommonJS with the tsc already in the project rather than
+  // adding a test-runner dependency. Output goes to .testbuild/, gitignored.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["esnext", "dom"],
+    "outDir": ".testbuild",
+    "incremental": false,
+    "types": ["node"],
+    "plugins": []
+  },
+  "include": ["tests/**/*.ts", "lib/**/*.ts"],
+  "exclude": ["node_modules", "tests/calibration/**"]
+}

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "test": "tsc -p tsconfig.tests.json && node --test \".testbuild/tests/**/*.test.js\"",
     "calibrate": "tsc -p tsconfig.calibration.json && node .calibration/tests/calibration/run.js",
     "db:studio": "drizzle-kit studio"
   },

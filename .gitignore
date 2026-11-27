@@ -43,3 +43,6 @@ next-env.d.ts
 
 # calibration harness build output
 /.calibration/
+
+# test build output
+/.testbuild/
