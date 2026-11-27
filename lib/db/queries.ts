@@ -333,3 +333,64 @@ export async function getAnswerForUser(
   // The part column is constrained to 1-3 by sessions_part_valid.
   return { ...row, part: row.part as Part };
 }
+
+/**
+ * One answer with its rebuilt result view, for deep links from the mistake
+ * history. Filtered by user_id on both tables.
+ */
+export async function getAnswerDetail(
+  answerId: string,
+  userId: string,
+): Promise<{
+  answer: SavedAnswer;
+  session: { id: string; part: number; topic: string | null };
+} | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: answers.id,
+      question: answers.question,
+      transcript: answers.transcript,
+      durationSec: answers.durationSec,
+      wordCount: answers.wordCount,
+      createdAt: answers.createdAt,
+      sessionId: sessions.id,
+      part: sessions.part,
+      topic: sessions.topic,
+      fluency: feedback.fluency,
+      lexical: feedback.lexical,
+      grammar: feedback.grammar,
+      pronunciationEst: feedback.pronunciationEst,
+      overall: feedback.overall,
+      guardrails: feedback.guardrails,
+      promptVersion: feedback.promptVersion,
+      model: feedback.model,
+      rawJson: feedback.rawJson,
+    })
+    .from(answers)
+    .innerJoin(
+      sessions,
+      and(eq(sessions.id, answers.sessionId), eq(sessions.userId, userId)),
+    )
+    .leftJoin(
+      feedback,
+      and(eq(feedback.answerId, answers.id), eq(feedback.userId, userId)),
+    )
+    .where(and(eq(answers.id, answerId), eq(answers.userId, userId)))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    answer: {
+      id: row.id,
+      question: row.question,
+      transcript: row.transcript,
+      durationSec: row.durationSec,
+      wordCount: row.wordCount,
+      createdAt: row.createdAt,
+      view: rebuildView(row),
+    },
+    session: { id: row.sessionId, part: row.part, topic: row.topic },
+  };
+}

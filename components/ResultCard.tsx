@@ -10,6 +10,7 @@
  * that earned it is checkable, and the learner can see what to fix.
  */
 import ModelAnswer from "./ModelAnswer";
+import SaveToNotebook from "./SaveToNotebook";
 import type { CriterionView, MistakeView, ResultView } from "@/lib/result-view";
 import type { MistakeCategory } from "@/lib/schemas";
 
@@ -96,7 +97,7 @@ export default function ResultCard({
               <h4>Mistakes and corrections</h4>
               <ul className="mistakes">
                 {view.mistakes.map((mistake, index) => (
-                  <Mistake key={index} mistake={mistake} />
+                  <Mistake key={index} mistake={mistake} answerId={answerId} />
                 ))}
               </ul>
             </section>
@@ -195,7 +196,13 @@ function Criterion({ criterion }: { criterion: CriterionView }) {
   );
 }
 
-function Mistake({ mistake }: { mistake: MistakeView }) {
+function Mistake({
+  mistake,
+  answerId,
+}: {
+  mistake: MistakeView;
+  answerId?: string;
+}) {
   return (
     <li>
       <span className="tag">{CATEGORY_LABEL[mistake.category]}</span>
@@ -205,6 +212,14 @@ function Mistake({ mistake }: { mistake: MistakeView }) {
       {mistake.explanation ? (
         <p className="muted">{mistake.explanation}</p>
       ) : null}
+      {/* The correction is the phrase worth keeping, prefilled and editable. */}
+      <SaveToNotebook
+        phrase={mistake.correction}
+        meaning={mistake.explanation}
+        example={mistake.correction}
+        answerId={answerId}
+        label="Save this phrase"
+      />
     </li>
   );
 }
