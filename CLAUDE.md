@@ -4,14 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Phase 2 code is in place and committed on `master`. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
+Phase 2 code is in place and committed on `main`, and pushed to https://github.com/Zorrow14/ielts_speaking_coach. On top of phase 1 (Next.js 16 App Router, Drizzle schema, Auth.js GitHub sign-in with every route protected) the app now has:
 
 - `lib/gemini/` — the only module that calls Gemini, via the `interactions` API with structured JSON output and `store: false`.
 - `POST /api/question` and `POST /api/evaluate`, both authenticated, both counted against a daily cap.
 - A `MediaRecorder` recorder with named errors for each failure mode, a two-minute soft warning and a three-minute hard stop.
 - Practice flows for Parts 1, 2 and 3, a results screen, and a history list that reopens saved feedback.
 
-Lint, typecheck and build all pass. **Nothing has been run against a live Neon or Gemini account from this machine**: there is still no `.env.local`, both migrations (`0000`, `0001`) are unapplied, and nothing is deployed. Every end-to-end claim is therefore unverified.
+Lint, typecheck and build all pass. What has now been checked against live services:
+
+- `.env.local` exists with all eight values filled in.
+- Both migrations (`0000`, `0001`) are applied to the Neon **`dev`** branch. The Neon `production` branch still has no tables.
+- The Gemini `interactions` call has been exercised live for both shapes — a Part 1 question, and an evaluation with inline audio — and returns schema-valid JSON.
+- The app is deployed on Vercel with all seven environment variables set.
+
+Still unverified end to end: GitHub sign-in against the deployed app, and a full recorded answer through the browser.
 
 `IELTS_Speaking_Coach_Project_Plan.md` (plan date 26 Nov 2026) is the authoritative spec. Read it before making architectural choices; update it when a decision in it changes, and keep this file in sync with what actually exists.
 
@@ -113,6 +120,8 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 
 ## Current phase
 
-Phase 2: Core speaking loop — code complete, unverified against live services. Blocked on the same manual steps as phase 1 (apply migrations to a Neon branch, create the GitHub OAuth app, deploy) plus a `GEMINI_API_KEY`.
+Phase 2: Core speaking loop — code complete; the Gemini calls are confirmed working against the live API. Remaining before phase 2 can be called done: sign in on the deployed app and record one answer through the browser.
+
+**Model choice.** `GEMINI_MODEL` is `gemini-3.5-flash-lite`, not because it is the better examiner but because `gemini-4-hydrogen` allows only 5 requests per minute on the free tier — one practice session exceeds that — and returns 503 under load. Revisit this in phase 3: scoring quality is exactly what phase 3 measures, and a weaker model is the likeliest source of inflated bands.
 
 Phase 3 is next and is where the examiner prompt gets its real work: expand the band descriptors in `lib/gemini/prompts.ts`, then check output against real answers for inflation. The prompt there is marked as a first draft on purpose. Do not start phase 4 (charts, vocabulary notebook) before that.
