@@ -26,6 +26,7 @@ import {
   sessionBelongsToUser,
 } from "@/lib/db/queries";
 import { ensureUser } from "@/lib/db/users";
+import { DatabaseError, dbCall, databaseFailure } from "@/lib/db-guard";
 import { GeminiCallError, GeminiOutputError, evaluateAnswer } from "@/lib/gemini";
 import { RequestLog, errorResponse } from "@/lib/log";
 import { consumeDailyAllowance } from "@/lib/rate-limit";
@@ -50,13 +51,35 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export async function POST(request: Request) {
   const log = new RequestLog("/api/evaluate", "POST");
+  try {
+    return await handle(request, log);
+  } catch (error) {
+    /**
+     * Only reached by a failure BEFORE a session id exists: ensureUser, the
+     * idempotency lookup, the ownership check, the session insert, or the
+     * quota claim. Everything after that point is caught inside `handle`,
+     * where the session id can travel back with the error.
+     *
+     * Before lib/db-guard.ts existed, these five calls sat above the try and
+     * a database fault from any of them escaped as a bare 500.
+     */
+    const dbFailed = databaseFailure(log, error);
+    if (dbFailed) return dbFailed;
+    return errorResponse(log, 500, "Something went wrong. Try again.", {
+      errorKind: "unexpected",
+      detail: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+}
 
+async function handle(request: Request, log: RequestLog): Promise<Response> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) {
     return errorResponse(log, 401, "Not signed in.", { errorKind: "unauthenticated" });
   }
-  const userId = session.user.id ?? (await ensureUser(email));
+  const userId =
+    session.user.id ?? (await dbCall("ensureUser", () => ensureUser(email)));
   log.setUser(userId);
 
   let form: FormData;
@@ -148,7 +171,9 @@ export async function POST(request: Request) {
   // Idempotency: an already-marked recording is returned as-is. Checked before
   // the quota is touched, so a retry is free.
   if (clientToken) {
-    const existing = await getAnswerByClientToken(userId, clientToken);
+    const existing = await dbCall("getAnswerByClientToken", () =>
+      getAnswerByClientToken(userId, clientToken),
+    );
     if (existing) {
       log.note("evaluate_idempotent_hit", { answerId: existing.answerId });
       return log.finish(
@@ -174,7 +199,10 @@ export async function POST(request: Request) {
         detail: "sessionId not a uuid",
       });
     }
-    if (!(await sessionBelongsToUser(sessionId, userId))) {
+    const owned = await dbCall("sessionBelongsToUser", () =>
+      sessionBelongsToUser(sessionId, userId),
+    );
+    if (!owned) {
       return errorResponse(
         log,
         403,
@@ -183,10 +211,14 @@ export async function POST(request: Request) {
       );
     }
   } else {
-    sessionId = await createSession({ userId, part, topic });
+    sessionId = await dbCall("createSession", () =>
+      createSession({ userId, part, topic }),
+    );
   }
 
-  const allowance = await consumeDailyAllowance(userId, "evaluate");
+  const allowance = await dbCall("consumeDailyAllowance", () =>
+    consumeDailyAllowance(userId, "evaluate"),
+  );
   if (!allowance.allowed) {
     return errorResponse(log, 429, allowance.message, {
       errorKind: `quota_${allowance.limit}`,
@@ -249,7 +281,9 @@ export async function POST(request: Request) {
       // Two identical requests raced and the other one won. Return its result
       // rather than an error - the work was done, just not by us.
       if (clientToken && isUniqueViolation(cause)) {
-        const winner = await getAnswerByClientToken(userId, clientToken);
+        const winner = await dbCall("getAnswerByClientToken", () =>
+          getAnswerByClientToken(userId, clientToken),
+        );
         if (winner) {
           log.warn("evaluate_idempotent_race", { answerId: winner.answerId });
           return log.finish(
@@ -265,7 +299,11 @@ export async function POST(request: Request) {
           );
         }
       }
-      throw cause;
+      // Not the idempotency race, so it is a real database failure. Labelled
+      // here rather than wrapping the call in dbCall, because isUniqueViolation
+      // above needs the driver's own error, not a wrapped one.
+      if (cause instanceof DatabaseError) throw cause;
+      throw new DatabaseError("saveEvaluation", cause);
     }
 
     return log.finish(
@@ -280,6 +318,13 @@ export async function POST(request: Request) {
       }),
     );
   } catch (error) {
+    // A database fault is not a marking fault. Saying so matters here more
+    // than anywhere: the learner has just recorded an answer, and the client
+    // keeps the audio for a retry only when the message says the recording is
+    // still worth retrying.
+    const dbFailed = databaseFailure(log, error, { sessionId });
+    if (dbFailed) return dbFailed;
+
     if (error instanceof GeminiOutputError) {
       return errorResponse(
         log,

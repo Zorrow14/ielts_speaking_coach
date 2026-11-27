@@ -11,6 +11,7 @@
  */
 import { auth } from "@/auth";
 import { ensureUser } from "@/lib/db/users";
+import { dbCall, databaseFailure } from "@/lib/db-guard";
 import {
   activity,
   baseline,
@@ -30,30 +31,31 @@ import { APP_TIME_ZONE } from "@/lib/time";
 export async function GET(request: Request) {
   const log = new RequestLog("/api/progress", "GET");
 
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) {
-    return errorResponse(log, 401, "Not signed in.", {
-      errorKind: "unauthenticated",
-    });
-  }
-  const userId = session.user.id ?? (await ensureUser(email));
-  log.setUser(userId);
-
-  const raw = new URL(request.url).searchParams.get("part");
-  let part: 1 | 2 | 3 | undefined;
-  if (raw !== null && raw !== "" && raw !== "all") {
-    const parsed = partSchema.safeParse(Number(raw));
-    if (!parsed.success) {
-      return errorResponse(log, 400, "part must be 1, 2, 3 or omitted.", {
-        errorKind: "validation",
-        detail: "bad part",
+  try {
+    const session = await auth();
+    const email = session?.user?.email;
+    if (!email) {
+      return errorResponse(log, 401, "Not signed in.", {
+        errorKind: "unauthenticated",
       });
     }
-    part = parsed.data;
-  }
+    const userId =
+      session.user.id ?? (await dbCall("ensureUser", () => ensureUser(email)));
+    log.setUser(userId);
 
-  try {
+    const raw = new URL(request.url).searchParams.get("part");
+    let part: 1 | 2 | 3 | undefined;
+    if (raw !== null && raw !== "" && raw !== "all") {
+      const parsed = partSchema.safeParse(Number(raw));
+      if (!parsed.success) {
+        return errorResponse(log, 400, "part must be 1, 2, 3 or omitted.", {
+          errorKind: "validation",
+          detail: "bad part",
+        });
+      }
+      part = parsed.data;
+    }
+
     const [
       series,
       daily,
@@ -65,35 +67,42 @@ export async function GET(request: Request) {
       base,
       prompts,
       weeks,
-    ] = await Promise.all([
-      scoreSeries(userId, part),
-      dailyAverages(userId, part),
-      weeklyAverages(userId, part),
-      activity(userId),
-      currentStreak(userId),
-      mistakesByCategory(userId, part ? { part } : {}),
-      fixTheseFirst(userId),
-      baseline(userId, part),
-      promptWindows(userId, part),
-      weekComparison(userId, part),
-    ]);
+      // One label for the fan-out: the SQLSTATE in the log says which column
+      // or table was missing, which is the part worth knowing.
+    ] = await dbCall("progressAggregates", () =>
+      Promise.all([
+        scoreSeries(userId, part),
+        dailyAverages(userId, part),
+        weeklyAverages(userId, part),
+        activity(userId),
+        currentStreak(userId),
+        mistakesByCategory(userId, part ? { part } : {}),
+        fixTheseFirst(userId),
+        baseline(userId, part),
+        promptWindows(userId, part),
+        weekComparison(userId, part),
+      ]),
+    );
 
     return log.finish(
       Response.json({
-      timeZone: APP_TIME_ZONE,
-      part: part ?? null,
-      series,
-      daily,
-      weekly,
-      activity: activityDays,
-      streak,
-      mistakes: { categories, fixTheseFirst: fixFirst },
-      baseline: base,
-      promptVersions: prompts,
-      weeks,
+        timeZone: APP_TIME_ZONE,
+        part: part ?? null,
+        series,
+        daily,
+        weekly,
+        activity: activityDays,
+        streak,
+        mistakes: { categories, fixTheseFirst: fixFirst },
+        baseline: base,
+        promptVersions: prompts,
+        weeks,
       }),
     );
   } catch (error) {
+    const dbFailed = databaseFailure(log, error);
+    if (dbFailed) return dbFailed;
+
     return errorResponse(
       log,
       500,

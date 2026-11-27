@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { generateQuestion, GeminiCallError, GeminiOutputError } from "@/lib/gemini";
 import { recentTopics } from "@/lib/db/queries";
 import { ensureUser } from "@/lib/db/users";
+import { dbCall, databaseFailure } from "@/lib/db-guard";
 import { RequestLog, errorResponse } from "@/lib/log";
 import { consumeDailyAllowance } from "@/lib/rate-limit";
 import { questionRequestSchema } from "@/lib/schemas";
@@ -12,47 +13,55 @@ export const maxDuration = 30;
 export async function POST(request: Request) {
   const log = new RequestLog("/api/question", "POST");
 
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) {
-    return errorResponse(log, 401, "Not signed in.", {
-      errorKind: "unauthenticated",
-    });
-  }
-  const userId = session.user.id ?? (await ensureUser(email));
-  log.setUser(userId);
-
-  let body: unknown;
+  // Everything is inside one try. Database calls that used to sit above it -
+  // ensureUser and the quota claim - escaped the handler when they threw and
+  // became bare 500s with no log line. See lib/db-guard.ts.
   try {
-    body = await request.json();
-  } catch {
-    return errorResponse(log, 400, "Expected a JSON body.", {
-      errorKind: "validation",
-      detail: "json parse failed",
-    });
-  }
+    const session = await auth();
+    const email = session?.user?.email;
+    if (!email) {
+      return errorResponse(log, 401, "Not signed in.", {
+        errorKind: "unauthenticated",
+      });
+    }
+    const userId =
+      session.user.id ?? (await dbCall("ensureUser", () => ensureUser(email)));
+    log.setUser(userId);
 
-  const parsed = questionRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return errorResponse(log, 400, "Tell me which part you want: 1, 2 or 3.", {
-      errorKind: "validation",
-      detail: parsed.error.issues[0]?.path.join(".") ?? "unknown field",
-    });
-  }
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse(log, 400, "Expected a JSON body.", {
+        errorKind: "validation",
+        detail: "json parse failed",
+      });
+    }
 
-  const { part, previousQuestion, previousTranscript } = parsed.data;
+    const parsed = questionRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return errorResponse(log, 400, "Tell me which part you want: 1, 2 or 3.", {
+        errorKind: "validation",
+        detail: parsed.error.issues[0]?.path.join(".") ?? "unknown field",
+      });
+    }
 
-  const allowance = await consumeDailyAllowance(userId, "question");
-  if (!allowance.allowed) {
-    return errorResponse(log, 429, allowance.message, {
-      errorKind: `quota_${allowance.limit}`,
-    });
-  }
+    const { part, previousQuestion, previousTranscript } = parsed.data;
 
-  try {
+    const allowance = await dbCall("consumeDailyAllowance", () =>
+      consumeDailyAllowance(userId, "question"),
+    );
+    if (!allowance.allowed) {
+      return errorResponse(log, 429, allowance.message, {
+        errorKind: `quota_${allowance.limit}`,
+      });
+    }
+
+    const avoidTopics = await dbCall("recentTopics", () => recentTopics(userId));
+
     const question = await generateQuestion({
       part,
-      avoidTopics: await recentTopics(userId),
+      avoidTopics,
       previousQuestion,
       previousTranscript,
     });
@@ -63,6 +72,10 @@ export async function POST(request: Request) {
       }),
     );
   } catch (error) {
+    // A database failure is its own thing, and is never a Gemini problem.
+    const dbFailed = databaseFailure(log, error);
+    if (dbFailed) return dbFailed;
+
     if (error instanceof GeminiOutputError) {
       return errorResponse(
         log,

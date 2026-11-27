@@ -7,6 +7,7 @@
  */
 import { auth } from "@/auth";
 import { ensureUser } from "@/lib/db/users";
+import { dbCall, databaseFailure } from "@/lib/db-guard";
 import { deleteVocab, updateVocab } from "@/lib/db/vocab";
 import { RequestLog, errorResponse } from "@/lib/log";
 import { vocabUpdateSchema } from "@/lib/schemas";
@@ -19,7 +20,7 @@ async function currentUserId(): Promise<string | null> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return null;
-  return session.user.id ?? (await ensureUser(email));
+  return session.user.id ?? (await dbCall("ensureUser", () => ensureUser(email)));
 }
 
 export async function PATCH(
@@ -27,46 +28,58 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const log = new RequestLog("/api/vocab/[id]", "PATCH");
-  const userId = await currentUserId();
-  if (!userId) {
-    return errorResponse(log, 401, "Not signed in.", {
-      errorKind: "unauthenticated",
-    });
-  }
-  log.setUser(userId);
-  const { id } = await params;
-  if (!UUID.test(id)) {
-    return errorResponse(log, 404, "That entry was not found.", {
-      errorKind: "validation",
-      detail: "id not a uuid",
-    });
-  }
 
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return errorResponse(log, 400, "Expected a JSON body.", {
-      errorKind: "validation",
-      detail: "json parse failed",
-    });
-  }
+    const userId = await currentUserId();
+    if (!userId) {
+      return errorResponse(log, 401, "Not signed in.", {
+        errorKind: "unauthenticated",
+      });
+    }
+    log.setUser(userId);
+    const { id } = await params;
+    if (!UUID.test(id)) {
+      return errorResponse(log, 404, "That entry was not found.", {
+        errorKind: "validation",
+        detail: "id not a uuid",
+      });
+    }
 
-  const parsed = vocabUpdateSchema.safeParse(body);
-  if (!parsed.success) {
-    return errorResponse(log, 400, "Nothing valid to update.", {
-      errorKind: "validation",
-    });
-  }
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse(log, 400, "Expected a JSON body.", {
+        errorKind: "validation",
+        detail: "json parse failed",
+      });
+    }
 
-  // Filtered by user_id in the UPDATE, so another user id looks missing.
-  const entry = await updateVocab(userId, id, parsed.data);
-  if (!entry) {
-    return errorResponse(log, 404, "That entry was not found.", {
-      errorKind: "not_found",
+    const parsed = vocabUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return errorResponse(log, 400, "Nothing valid to update.", {
+        errorKind: "validation",
+      });
+    }
+
+    // Filtered by user_id in the UPDATE, so another user id looks missing.
+    const entry = await dbCall("updateVocab", () =>
+      updateVocab(userId, id, parsed.data),
+    );
+    if (!entry) {
+      return errorResponse(log, 404, "That entry was not found.", {
+        errorKind: "not_found",
+      });
+    }
+    return log.finish(Response.json({ entry }));
+  } catch (error) {
+    const dbFailed = databaseFailure(log, error);
+    if (dbFailed) return dbFailed;
+    return errorResponse(log, 500, "Could not update that entry.", {
+      errorKind: "unexpected",
+      detail: error instanceof Error ? error.message : "unknown error",
     });
   }
-  return log.finish(Response.json({ entry }));
 }
 
 export async function DELETE(
@@ -74,26 +87,36 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const log = new RequestLog("/api/vocab/[id]", "DELETE");
-  const userId = await currentUserId();
-  if (!userId) {
-    return errorResponse(log, 401, "Not signed in.", {
-      errorKind: "unauthenticated",
-    });
-  }
-  log.setUser(userId);
-  const { id } = await params;
-  if (!UUID.test(id)) {
-    return errorResponse(log, 404, "That entry was not found.", {
-      errorKind: "validation",
-      detail: "id not a uuid",
-    });
-  }
 
-  const removed = await deleteVocab(userId, id);
-  if (!removed) {
-    return errorResponse(log, 404, "That entry was not found.", {
-      errorKind: "not_found",
+  try {
+    const userId = await currentUserId();
+    if (!userId) {
+      return errorResponse(log, 401, "Not signed in.", {
+        errorKind: "unauthenticated",
+      });
+    }
+    log.setUser(userId);
+    const { id } = await params;
+    if (!UUID.test(id)) {
+      return errorResponse(log, 404, "That entry was not found.", {
+        errorKind: "validation",
+        detail: "id not a uuid",
+      });
+    }
+
+    const removed = await dbCall("deleteVocab", () => deleteVocab(userId, id));
+    if (!removed) {
+      return errorResponse(log, 404, "That entry was not found.", {
+        errorKind: "not_found",
+      });
+    }
+    return log.finish(Response.json({ ok: true }));
+  } catch (error) {
+    const dbFailed = databaseFailure(log, error);
+    if (dbFailed) return dbFailed;
+    return errorResponse(log, 500, "Could not delete that entry.", {
+      errorKind: "unexpected",
+      detail: error instanceof Error ? error.message : "unknown error",
     });
   }
-  return log.finish(Response.json({ ok: true }));
 }

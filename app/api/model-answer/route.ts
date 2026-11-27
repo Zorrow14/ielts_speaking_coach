@@ -11,6 +11,7 @@
 import { auth } from "@/auth";
 import { getAnswerForUser } from "@/lib/db/queries";
 import { ensureUser } from "@/lib/db/users";
+import { dbCall, databaseFailure } from "@/lib/db-guard";
 import {
   generateModelAnswer,
   GeminiCallError,
@@ -25,55 +26,62 @@ export const maxDuration = 45;
 export async function POST(request: Request) {
   const log = new RequestLog("/api/model-answer", "POST");
 
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) {
-    return errorResponse(log, 401, "Not signed in.", {
-      errorKind: "unauthenticated",
-    });
-  }
-  const userId = session.user.id ?? (await ensureUser(email));
-  log.setUser(userId);
-
-  let body: unknown;
+  // One try around the whole handler: a database failure anywhere in it must
+  // become a classified 503, not a bare 500. See lib/db-guard.ts.
   try {
-    body = await request.json();
-  } catch {
-    return errorResponse(log, 400, "Expected a JSON body.", {
-      errorKind: "validation",
-      detail: "json parse failed",
-    });
-  }
+    const session = await auth();
+    const email = session?.user?.email;
+    if (!email) {
+      return errorResponse(log, 401, "Not signed in.", {
+        errorKind: "unauthenticated",
+      });
+    }
+    const userId =
+      session.user.id ?? (await dbCall("ensureUser", () => ensureUser(email)));
+    log.setUser(userId);
 
-  const parsed = modelAnswerRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return errorResponse(log, 400, "Which answer? An answer id is required.", {
-      errorKind: "validation",
-      detail: "answerId missing or not a uuid",
-    });
-  }
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse(log, 400, "Expected a JSON body.", {
+        errorKind: "validation",
+        detail: "json parse failed",
+      });
+    }
 
-  // Filtered by user_id, so somebody else's answer id is simply not found.
-  const answer = await getAnswerForUser(parsed.data.answerId, userId);
-  if (!answer) {
-    return errorResponse(log, 404, "That answer was not found.", {
-      errorKind: "not_found",
-    });
-  }
-  if (!answer.transcript.trim()) {
-    return errorResponse(log, 422, "That answer has no transcript to improve.", {
-      errorKind: "no_transcript",
-    });
-  }
+    const parsed = modelAnswerRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return errorResponse(log, 400, "Which answer? An answer id is required.", {
+        errorKind: "validation",
+        detail: "answerId missing or not a uuid",
+      });
+    }
 
-  const allowance = await consumeDailyAllowance(userId, "model_answer");
-  if (!allowance.allowed) {
-    return errorResponse(log, 429, allowance.message, {
-      errorKind: `quota_${allowance.limit}`,
-    });
-  }
+    // Filtered by user_id, so somebody else's answer id is simply not found.
+    const answer = await dbCall("getAnswerForUser", () =>
+      getAnswerForUser(parsed.data.answerId, userId),
+    );
+    if (!answer) {
+      return errorResponse(log, 404, "That answer was not found.", {
+        errorKind: "not_found",
+      });
+    }
+    if (!answer.transcript.trim()) {
+      return errorResponse(log, 422, "That answer has no transcript to improve.", {
+        errorKind: "no_transcript",
+      });
+    }
 
-  try {
+    const allowance = await dbCall("consumeDailyAllowance", () =>
+      consumeDailyAllowance(userId, "model_answer"),
+    );
+    if (!allowance.allowed) {
+      return errorResponse(log, 429, allowance.message, {
+        errorKind: `quota_${allowance.limit}`,
+      });
+    }
+
     const modelAnswer = await generateModelAnswer({
       part: answer.part,
       question: answer.question,
@@ -86,6 +94,9 @@ export async function POST(request: Request) {
       }),
     );
   } catch (error) {
+    const dbFailed = databaseFailure(log, error);
+    if (dbFailed) return dbFailed;
+
     if (error instanceof GeminiOutputError) {
       return errorResponse(
         log,
