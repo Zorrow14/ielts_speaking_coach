@@ -43,6 +43,13 @@ const AUTH_HANDLER = join("app", "api", "auth");
 /** Deliberately public, and documented as returning nothing sensitive. */
 const PUBLIC_ROUTES = [join("app", "api", "health", "route.ts")];
 
+/**
+ * Guest routes have no session by design. They are gated differently - a kill
+ * switch plus a signed token - and tests/structure/guest-isolation.test.ts
+ * proves they cannot reach any code that writes owner data.
+ */
+const GUEST_PREFIX = join("app", "api", "guest");
+
 describe("every API route is authenticated", () => {
   it("found the routes to check", () => {
     assert.ok(ROUTE_FILES.length >= 7, `only found ${ROUTE_FILES.length} routes`);
@@ -60,6 +67,25 @@ describe("every API route is authenticated", () => {
         assert.ok(
           !/\buserId\b/.test(source),
           `${rel} is public but mentions userId`,
+        );
+        return;
+      }
+
+      if (rel.startsWith(GUEST_PREFIX)) {
+        // Gated by the guest guard, not by a session. It must still refuse
+        // when the gate says no, and must never touch an owner user id.
+        assert.ok(
+          source.includes("openGuestRoute()") ||
+            source.includes("guestModeEnabled()"),
+          `${rel} does not go through the guest gate`,
+        );
+        assert.ok(
+          !/\buserId\b/.test(source),
+          `${rel} is a guest route but mentions userId`,
+        );
+        assert.ok(
+          !/\bawait auth\(\)/.test(source),
+          `${rel} resolves an owner session, which a guest route must not do`,
         );
         return;
       }
