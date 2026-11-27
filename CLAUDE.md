@@ -14,7 +14,7 @@ Phase 2 code is in place and committed on `main`, and pushed to https://github.c
 Lint, typecheck and build all pass. What has now been checked against live services:
 
 - `.env.local` exists with all eight values filled in.
-- Both migrations (`0000`, `0001`) are applied to the Neon **`dev`** branch. The Neon `production` branch still has no tables.
+- Both migrations (`0000`, `0001`) are applied to **both** Neon branches, `dev` and `production`: 7 tables, 17 indexes, 10 foreign keys, 2 enums, and matching `drizzle.__drizzle_migrations` journals on each.
 - The Gemini `interactions` call has been exercised live for both shapes — a Part 1 question, and an evaluation with inline audio — and returns schema-valid JSON.
 - The app is deployed on Vercel with all seven environment variables set.
 
@@ -86,7 +86,9 @@ npm run db:studio    # drizzle-kit studio, browse the data
 
 The quality gate before calling a phase done is `npm run lint && npm run typecheck && npm run build`.
 
-Two migrations are pending: `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts). `npm run db:migrate` applies both.
+Both migrations — `0000` (the six core tables) and `0001` (`api_requests`, which the daily cap counts) — are already applied to the `dev` and `production` branches, so `db:migrate` is a no-op until a new one is generated.
+
+`drizzle-kit migrate` decides what to re-run by comparing the journal's `created_at` against each migration folder's timestamp, not by hash. Note that it normalises CRLF to LF before hashing the SQL file, so a hash computed from the file as it sits on disk (Windows checks these out as CRLF) will not match the stored one.
 
 `drizzle.config.ts` loads `.env.local` with `process.loadEnvFile`, so `db:*` commands pick up the same `DATABASE_URL` as the app without a dotenv dependency. **`db:migrate` writes to whatever `DATABASE_URL` points at** — check it is a Neon branch first.
 
