@@ -18,7 +18,7 @@ Phases 1 to 5 are code-complete and committed on `main`, pushed to https://githu
 Lint, typecheck, build and tests all pass. What has been checked against live services:
 
 - `.env.local` exists with all eight values filled in.
-- **All six migrations (`0000`–`0005`) are applied to both Neon branches, `dev` and `production`.** Confirmed by querying `drizzle.__drizzle_migrations` on each, and on production by checking that `rate_buckets`, `feedback.prompt_version`, `vocab_notebook.next_review`, `answers.client_token`, `mistakes_user_pair_folded_idx` and the ten-value `mistake_category` enum all exist.
+- **All seven migrations (`0000`–`0006`) are applied to both Neon branches, `dev` and `production`.** `0006` (feature A's `answers.retry_of_answer_id`) reached production on 28 Nov 2026, after feature A had already been deployed without it - `/api/health` reported `schema_behind` naming `0006_perfect_gorgon` until it was applied. Confirmed by querying `drizzle.__drizzle_migrations` on each, and on production by checking that `rate_buckets`, `feedback.prompt_version`, `vocab_notebook.next_review`, `answers.client_token`, `mistakes_user_pair_folded_idx` and the ten-value `mistake_category` enum all exist.
 - The Gemini `interactions` call has been exercised live for both shapes — a Part 1 question, and an evaluation with inline audio — and returns schema-valid JSON.
 - The app is deployed on Vercel with all seven environment variables set, and `https://ieltsspeakingcoach.vercel.app/api/health` returns 200.
 - The calibration harness has run against the real model: 36 of 36 calls succeeded, band ordering holds, run-to-run spread is 0 or 0.5.
@@ -98,7 +98,7 @@ The quality gate before calling a phase done is `npm run lint && npm run typeche
 
 `npm run test` uses Node's built-in `node:test` runner — **no test-runner dependency**. It compiles with `tsconfig.tests.json` into a gitignored `.testbuild/`, the same trick the calibration harness uses. The database-backed tests (user isolation, the daily-cap race, idempotency) **skip with a reason** when `DATABASE_URL` is unset, so point it at a disposable branch to run them; they insert and then delete throwaway users, so never aim them at production.
 
-**All six migrations (`0000`–`0005`) are applied to both `dev` and `production`** as of 27 Nov 2026. `npm run db:check` is how you confirm that rather than trusting this paragraph — it reads the target database and exits non-zero if it is behind.
+**All seven migrations (`0000`–`0006`) are applied to both `dev` and `production`** as of 28 Nov 2026. `npm run db:check` is how you confirm that rather than trusting this paragraph — it reads the target database and exits non-zero if it is behind.
 
 `0003`, `0004` and `0005` are additive and safe on populated tables. `0002` is not — see below. It ran while `feedback` and `mistakes` were empty on both branches, which is the only window in which it could have succeeded. Full procedure, including how to apply to production and how to roll a bad migration back, is in `DEPLOY.md`.
 
@@ -217,7 +217,7 @@ Phases 1 to 5 are built, and production finally runs the schema the code expects
 
 **What is actually true right now:**
 
-- All six migrations are applied to `dev` and `production`. `npm run db:check` confirms it.
+- All seven migrations are applied to `dev` and `production`. `npm run db:check` confirms it.
 - `https://ieltsspeakingcoach.vercel.app/api/health` returns 200.
 - Lint, typecheck, build and 113 tests pass.
 - Production holds **one `users` row and nothing else**. No session, answer, feedback or mistake has ever been written there.
@@ -254,6 +254,6 @@ Guest mode (public `/api/guest/*` routes, a signed guest token, a Vercel BotID c
 
 - **The work is kept**, not lost: branch `backup/guest-attempt-20261127`, tag `guest-attempt-20261127`, both at `db189b1`. Nothing was force-pushed and no history was rewritten; the rollback is a revert commit on top.
 - **Why it was rolled back:** the deployed app started returning `500` on `/api/question` ("Could not reach the server. Check your connection."). The cause was **not** guest mode — the Vercel production deployment was pointed at the Neon `production` branch, which still had only migrations `0000`–`0001`, so `rate_buckets` (`0004`), `feedback.prompt_version` (`0002`) and `vocab_notebook.next_review` (`0003`) were all missing. Guest mode's own `0006` was one symptom among four, not the disease.
-- **Before retrying**, note that `0002`–`0005` have since been applied to `production` (27 Nov), so the original blocker is gone. Run `npm run db:check` against production first anyway, and apply guest mode's own `0006` before deploying it.
+- **Before retrying**, note that `0002`–`0005` have since been applied to `production` (27 Nov), so the original blocker is gone. Run `npm run db:check` against production first anyway. **Guest mode's migration on the backup branch is numbered `0006_friendly_post`, which now collides with feature A's `0006_perfect_gorgon`.** Do not cherry-pick it as it stands: regenerate it with `npm run db:generate` on top of current `main` so it becomes `0007`, then apply it before deploying.
 
 See `ROLLBACK_NOTES.md` for the full account and the retry checklist.
