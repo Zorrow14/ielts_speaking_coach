@@ -149,6 +149,8 @@
 
   .result__question {
     font-family: var(--font-serif);
+    /* The only serif weight shipped; see the font comment in app/layout.tsx. */
+    font-weight: var(--weight-semibold);
     font-size: var(--text-md);
     line-height: var(--leading-snug);
     white-space: pre-line;

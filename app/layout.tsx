@@ -32,9 +32,16 @@ const geistMono = Geist_Mono({
   display: "swap",
 });
 
+/*
+ * One static weight, not the variable font. Every serif use is semibold
+ * (titles, question text, cue card, part numbers), and the variable file
+ * cost 50.7 KB against the redesign's page-weight budget. Measured, not
+ * guessed - see the Stage 1 commit.
+ */
 const sourceSerif = Source_Serif_4({
   variable: "--font-source-serif",
   subsets: ["latin"],
+  weight: "600",
   style: "normal",
   display: "swap",
 });
