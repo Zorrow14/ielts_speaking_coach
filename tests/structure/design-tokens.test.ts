@@ -204,6 +204,54 @@ describe("the cascade order is explicit", () => {
   }
 });
 
+describe("no shorthand silently cancels a longhand written before it", () => {
+  /*
+   * A shorthand resets every property it covers, so writing it AFTER one of
+   * its own longhands in the same rule throws the longhand away. That is how
+   * the sidebar stopped sticking: `top: 0; inset: auto;` reset top to auto,
+   * and a sticky element with no offset scrolls away with the page. Nothing
+   * complains - the rule is valid CSS - so it needs a test.
+   */
+  const COVERS: Record<string, RegExp> = {
+    inset: /^(top|right|bottom|left|inset-(block|inline)(-start|-end)?)$/,
+    padding: /^padding-/,
+    margin: /^margin-/,
+    border: /^border-(top|right|bottom|left|width|style|color)(-width|-style|-color)?$/,
+    font: /^(font-(size|weight|family|style|variant|stretch)|line-height)$/,
+    background: /^background-(color|image|position|size|repeat|attachment|origin|clip)$/,
+    gap: /^(row-gap|column-gap)$/,
+    flex: /^flex-(grow|shrink|basis)$/,
+    overflow: /^overflow-(x|y)$/,
+    outline: /^outline-(width|style|color)$/,
+    transition: /^transition-/,
+    animation: /^animation-/,
+    "list-style": /^list-style-/,
+    "text-decoration": /^text-decoration-(line|color|style|thickness)$/,
+  };
+
+  for (const { name, source } of files) {
+    it(`${name} has no shorthand after its own longhand`, () => {
+      const css = stripComments(source);
+      // Innermost declaration blocks: braces that contain no further braces.
+      for (const block of css.matchAll(/\{([^{}]*)\}/g)) {
+        const properties = [...block[1].matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map(
+          (match) => match[1],
+        );
+        properties.forEach((property, index) => {
+          const covers = COVERS[property];
+          if (!covers) return;
+          const earlier = properties.slice(0, index).find((p) => covers.test(p));
+          assert.equal(
+            earlier,
+            undefined,
+            `${name}: "${property}" comes after "${earlier}" in the same rule and silently resets it. Put the shorthand first.`,
+          );
+        });
+      }
+    });
+  }
+});
+
 describe("no invisible characters hide in the stylesheets", () => {
   for (const { name, source } of files) {
     it(`${name} is free of control characters`, () => {

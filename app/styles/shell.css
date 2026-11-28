@@ -154,10 +154,19 @@
   }
 
   @media (min-width: 48rem) and (min-height: 35rem) {
+    /*
+     * Pinned to the viewport while the page scrolls beside it.
+     *
+     * ORDER MATTERS: `inset: auto` clears the phone bar's `bottom: 0`, but it
+     * is a shorthand for all four edges, so it must come BEFORE `top: 0`.
+     * Written the other way round it silently reset top to auto, and a sticky
+     * element with no offset does not stick - the sidebar scrolled away with
+     * the page. tests/structure/design-tokens.test.ts guards this.
+     */
     .nav {
       position: sticky;
-      top: 0;
       inset: auto;
+      top: 0;
       height: 100dvh;
       border-top: 0;
       border-right: var(--border-width) solid var(--color-border);
