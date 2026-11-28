@@ -209,7 +209,6 @@ describe("no invisible characters hide in the stylesheets", () => {
     it(`${name} is free of control characters`, () => {
       // U+0080-U+009F are C1 control codes: invisible in an editor, and how
       // the bullet rule came to render a literal "2".
-      // eslint-disable-next-line no-control-regex
       const offender = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u0080-\u009F]/.exec(source);
       assert.equal(
         offender,
