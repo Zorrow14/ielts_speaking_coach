@@ -17,14 +17,24 @@ import type { NextConfig } from "next";
  * - `img-src` allows data: for the Chart.js canvas and GitHub avatars.
  * - `frame-ancestors 'none'` plus X-Frame-Options stops clickjacking; this app
  *   is never meant to be embedded.
+ * - `'unsafe-eval'` is added in DEVELOPMENT ONLY. React 19's development build
+ *   calls eval() to rebuild server call stacks for the error overlay, and
+ *   reports "eval() is not supported in this environment" when the CSP blocks
+ *   it. Neither React nor Next uses eval() in production, and the Next 16 CSP
+ *   guide recommends exactly this gate. The test is `=== "development"`, not
+ *   `!== "production"`, so anything unexpected - a test run, an unset
+ *   NODE_ENV - gets the strict policy. tests/structure/security.test.ts pins
+ *   both halves.
  */
+const isDev = process.env.NODE_ENV === "development";
+
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
   "img-src 'self' data: https://avatars.githubusercontent.com",

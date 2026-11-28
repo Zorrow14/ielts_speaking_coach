@@ -256,6 +256,29 @@ describe("security configuration", () => {
     assert.match(config, /connect-src 'self'/);
   });
 
+  describe("'unsafe-eval' exists for React's dev overlay and never in production", () => {
+    // Comments describe the gate in prose; only code counts here.
+    const code = config.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+    it("is gated on NODE_ENV being exactly development", () => {
+      // `=== "development"` fails closed: a test run or an unset NODE_ENV
+      // gets the strict policy. `!== "production"` would fail open.
+      assert.match(code, /const isDev = process\.env\.NODE_ENV === "development";/);
+      assert.doesNotMatch(code, /NODE_ENV\s*!==?\s*"production"/);
+    });
+
+    it("appears exactly once, inside the isDev ternary", () => {
+      const uses = [...code.matchAll(/unsafe-eval/g)].length;
+      assert.equal(uses, 1, `'unsafe-eval' appears ${uses} times in next.config.ts code`);
+      assert.match(code, /\$\{isDev \? " 'unsafe-eval'" : ""\}/);
+    });
+
+    it("is only ever added to script-src", () => {
+      const line = code.split("\n").find((l) => l.includes("unsafe-eval")) ?? "";
+      assert.match(line, /script-src/, "unsafe-eval must not reach any other directive");
+    });
+  });
+
   it("locks the sign-in allowlist closed by default", () => {
     const authSource = readFileSync(join(ROOT, "auth.ts"), "utf8");
     // An empty ALLOWED_EMAILS must refuse everybody, not admit everybody.
