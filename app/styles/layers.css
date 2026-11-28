@@ -1,0 +1,12 @@
+/*
+ * The cascade order, in a file of its own and imported FIRST.
+ *
+ * It cannot live at the top of globals.css: when the bundler inlines the
+ * @import chain it emits the imported files before globals.css's own rules,
+ * so a statement there ends up last and the order silently falls back to
+ * import order. Imported first, it is the first @layer anything sees, which
+ * is what fixes the order.
+ *
+ * A later layer always wins, whatever the selector specificity.
+ */
+@layer reset, tokens, base, components, shell, pages, utilities;

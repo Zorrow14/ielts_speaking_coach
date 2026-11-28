@@ -1,0 +1,296 @@
+/*
+ * App shell: the frame every signed-in page sits in.
+ *
+ *   < 48rem   bottom tab bar, fixed, above the iOS home indicator
+ *   >= 48rem  left sidebar, sticky, full height
+ *
+ * Both navs are rendered by components/Nav.tsx; CSS shows exactly one, so the
+ * hidden one is display:none and therefore absent from the accessibility tree
+ * too - a screen reader never hears the links twice.
+ *
+ * /login renders no nav at all, so the frame collapses to a single column
+ * with no bottom padding.
+ */
+
+@layer shell {
+  .app {
+    min-height: 100dvh;
+  }
+
+  /* Room for the fixed bottom bar, plus the iOS home-indicator inset. */
+  .app:has(> .nav) .app__content {
+    padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 48rem) {
+    .app:has(> .nav) {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    }
+
+    .app:has(> .nav) .app__content {
+      padding-bottom: 0;
+    }
+  }
+
+  /* --- Page container -------------------------------------------------- */
+
+  .shell {
+    width: 100%;
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: var(--space-5) var(--space-4) var(--space-7);
+    padding-left: max(var(--space-4), env(safe-area-inset-left));
+    padding-right: max(var(--space-4), env(safe-area-inset-right));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+
+  @media (min-width: 48rem) {
+    .shell {
+      padding: var(--space-7) var(--space-6);
+    }
+  }
+
+  .shell--centred {
+    min-height: 100dvh;
+    justify-content: center;
+  }
+
+  .shell__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  /* Small caps line above a page title: "Part 2 · Question 1 of 1". */
+  .eyebrow {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* --- Navigation ------------------------------------------------------ */
+
+  .nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: var(--z-nav);
+    background: var(--color-surface);
+    border-top: var(--border-width) solid var(--color-border);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .nav__sidebar {
+    display: none;
+  }
+
+  .nav__tabs {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    height: var(--bottom-nav-height);
+    list-style: none;
+  }
+
+  .nav__tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.125rem;
+    width: 100%;
+    height: 100%;
+    min-height: var(--tap-min);
+    color: var(--color-text-muted);
+    font-size: 0.6875rem;
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    position: relative;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .nav__tab svg {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+
+  /*
+   * Active: colour AND a bar AND a heavier weight. Never colour alone, so the
+   * state survives colour-blindness and forced-colors mode.
+   */
+  .nav__tab[aria-current="page"],
+  .nav__tab--active {
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
+  }
+
+  .nav__tab[aria-current="page"]::before,
+  .nav__tab--active::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 30%;
+    right: 30%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--color-accent);
+  }
+
+  @media (min-width: 48rem) {
+    .nav {
+      position: sticky;
+      top: 0;
+      inset: auto;
+      height: 100dvh;
+      border-top: 0;
+      border-right: var(--border-width) solid var(--color-border);
+      padding: 0;
+    }
+
+    .nav__tabs {
+      display: none;
+    }
+
+    .nav__sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+      height: 100%;
+      padding: var(--space-5) var(--space-3);
+      overflow-y: auto;
+    }
+  }
+
+  .nav__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-text);
+    font-family: var(--font-serif);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+  }
+
+  .nav__brand svg {
+    width: 1.5rem;
+    height: 1.5rem;
+    color: var(--color-accent);
+  }
+
+  .nav__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    list-style: none;
+  }
+
+  .nav__group-label {
+    padding: var(--space-3) var(--space-3) var(--space-1);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .nav__link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--tap-min);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    position: relative;
+    transition:
+      background-color var(--duration-fast) var(--ease-standard),
+      color var(--duration-fast) var(--ease-standard);
+  }
+
+  .nav__link svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: none;
+  }
+
+  .nav__link:hover {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+  }
+
+  .nav__link[aria-current="page"],
+  .nav__link--active {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: var(--weight-semibold);
+  }
+
+  .nav__link[aria-current="page"]::before,
+  .nav__link--active::before {
+    content: "";
+    position: absolute;
+    left: calc(-1 * var(--space-3));
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--color-accent);
+  }
+
+  /* Sign-out and the More tab are buttons, not links; make them look like
+     their neighbours. */
+  /* No font rules here: the reset layer already gives buttons font: inherit,
+     and restating it at this specificity would beat .nav__tab--active and
+     stop the active tab turning bold. */
+  button.nav__link {
+    width: 100%;
+    text-align: left;
+  }
+
+  button.nav__tab {
+    text-align: center;
+  }
+
+  .nav__footer {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  /* The "More" sheet on phones: a plain list of the rest of the app. */
+  .more-sheet__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    list-style: none;
+  }
+
+  .more-sheet__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-top: var(--space-4);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  @media (forced-colors: active) {
+    .nav__tab[aria-current="page"]::before,
+    .nav__link[aria-current="page"]::before {
+      background: Highlight;
+    }
+  }
+}

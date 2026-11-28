@@ -18,7 +18,7 @@
  * band, and putting it on the same axes would imply it is as trustworthy as
  * the other three.
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarController,
   BarElement,
@@ -36,6 +36,7 @@ import {
 import type { ScorePoint } from "@/lib/db/progress";
 import type { ActivityDay, PromptWindow } from "@/lib/db/progress";
 import { DAY_SHORT_FORMAT, DATE_TIME_FORMAT } from "@/lib/time";
+import { useResolvedTheme } from "@/lib/use-resolved-theme";
 
 Chart.register(
   BarController,
@@ -79,30 +80,16 @@ const DARK: Theme = {
   surface: "#191919",
 };
 
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-
-function subscribeToColorScheme(onChange: () => void): () => void {
-  const query = window.matchMedia(DARK_QUERY);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-
 /**
- * Tracks the OS colour scheme so the chart is re-stepped for dark mode rather
- * than inverted.
+ * Whether the chart should use its dark-mode series steps.
  *
- * useSyncExternalStore rather than useEffect + setState: matchMedia is an
- * external store, and reading it in an effect would render one frame with the
- * wrong palette and then repaint.
+ * Follows what is actually on screen: the manual theme choice when there is
+ * one, otherwise the operating system. Before the redesign this read
+ * prefers-color-scheme directly, which would have left the charts dark after
+ * the user switched the page to light. See lib/use-resolved-theme.ts.
  */
 function usePrefersDark(): boolean {
-  return useSyncExternalStore(
-    subscribeToColorScheme,
-    () => window.matchMedia(DARK_QUERY).matches,
-    // The server cannot know the viewer's scheme; light is the safe guess and
-    // the first client render corrects it.
-    () => false,
-  );
+  return useResolvedTheme() === "dark";
 }
 
 /**
