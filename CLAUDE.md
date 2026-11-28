@@ -156,6 +156,50 @@ The plan sequences work as: setup → core record/evaluate loop → feedback qua
 - `CALIBRATION_REVIEW.md` — the two disputed fixtures laid out with transcripts, runs and evidence quotes, for a human to settle. Neither has been relabelled.
 - `tests/calibration/` — `fixtures.ts` holds hand-written transcripts at known bands, including three in the user's own error profile; `run.ts` scores each three times and reports spread, ordering and inflation. Not part of the app.
 
+## Design system
+
+Direction A, "exam room": quiet, paper-like, the question dominant. The home page alone borrows some warmth (greeting, streak, one focus); practice and results stay exam-quiet, because every score is an estimate and a celebratory UI would oversell it.
+
+**Where things live**
+
+- `app/globals.css` is only an entry point. It imports, in order: `styles/layers.css` (the cascade order, which MUST be imported first or the bundler emits it last and order silently falls back to import order), `tokens.css`, `base.css`, `components.css`, `shell.css`, `pages.css`, `home.css`.
+- `app/styles/tokens.css` is **the only file allowed raw colour values**. Colour, type scale, spacing, radius, shadow, motion durations and layout sizes are all custom properties here.
+- Dark mode is its own set of steps, defined twice in `tokens.css` (manual `[data-theme="dark"]`, and inside `prefers-color-scheme`). The two blocks must stay identical; a test enforces it.
+- `components/Icon.tsx` is the icon set, drawn for this project. No icon library.
+
+**Theme**
+
+System by default; a System / Light / Dark switch (`components/ThemeToggle.tsx`) in the sidebar and the phone "More" sheet. The choice is a first-party `theme` cookie holding one of two words, read in `app/layout.tsx` and rendered into `<html data-theme>`, so the first paint is right with **no inline script**. It is not app data, so it does not conflict with the no-localStorage rule, and it needed no schema change. The cost, accepted: every route renders dynamically. `lib/theme.ts` holds the cookie definition and `THEME_COLORS` (the browser toolbar colour, which must equal `--color-bg`). Chart.js cannot read CSS, so the charts use `lib/use-resolved-theme.ts`, which follows the manual choice and the system together.
+
+**Adding a component**
+
+1. Use existing tokens. If a value genuinely does not exist, add a token to `tokens.css` - with a dark value, and its contrast checked with a calculator, not by eye.
+2. Put the CSS in the right layer: a reusable primitive in `components.css`, page-specific styles in `pages.css`. Every rule must sit inside an `@layer` block; an unlayered rule beats the whole system regardless of specificity.
+3. Name it BEM-style: `.block`, `.block__part`, `.block--variant`. Existing class names (`.button--quiet`, `.card--link`, `.chip`, `.tag`) are the public API - keep them working.
+4. Run `npm run test`. `tests/structure/design-tokens.test.ts` fails on an undefined `var()`, a raw colour outside `tokens.css`, a rule outside a layer, an invisible control character, or the two dark blocks drifting apart.
+
+**Primitives available**: buttons (`.button`, `--quiet`/`--secondary`, `--ghost`, `--danger`, `--tiny`, `--large`, `--block`, `.icon-button`), `.card` (`--link`, `--priority`, `--temp`), `.panel`, `.field` and `.input`, `.chip` and `.filters`, `.tabs`/`.tab`, `.segmented`, `.badge` (`--accent`/`--success`/`--warning`/`--danger`) and `.tag`, `.estimate-note`, `.alert` (`--soft`), `.notice` (`--success`), `.toast-region`/`.toast`, `.dialog` (`--sheet` becomes a bottom sheet on phones), `.empty`, `.skeleton` (`--text`, `--title`, `--block`), `.data-table`, `.muted`, `.visually-hidden`, `.eyebrow`.
+
+**Motion rules**
+
+- Durations come from tokens (`--duration-fast` 120ms, `--duration-base` 200ms, `--duration-slow` 320ms) with `--ease-standard`. No overshoot anywhere.
+- Timers move linearly, and are driven by the existing `Date.now()` clock, never a separate CSS animation that could drift from it.
+- Bands appear; they do not count up. A number ticking from 0.0 to 6.5 implies precision an estimate does not have.
+- `prefers-reduced-motion`: the duration tokens collapse to 0, and `base.css` stops any animation that bypasses a token. Nothing moves for someone who asked for it not to.
+
+**Accessibility rules**
+
+- Text at least 4.5:1 (body text is 13:1+), control borders at least 3:1 against every surface (`--color-border-strong`; `--color-border` is decorative only).
+- One focus ring everywhere (`:focus-visible`, 3px accent), never removed.
+- Every interactive target is at least 44px (`--tap-min`).
+- State is never carried by colour alone: the active nav item is colour plus a bar plus weight; deltas say "higher"/"lower".
+- Use native elements where they exist: `<dialog>` with `showModal()` for sheets (focus trap, Escape, focus return for free), real radio inputs for the theme switch.
+- Forced-colors mode keeps the borders that colour was drawing.
+
+**Navigation**: bottom tab bar under 48rem (Home, Practise, History, Progress, More), sidebar from 48rem. Both live in one `<nav>` landmark; CSS shows exactly one, so the hidden one is out of the accessibility tree. Safe areas are handled with `viewport-fit=cover` and `env(safe-area-inset-*)`.
+
+**Fonts**: Source Serif 4 (titles and question text, one static 600 weight), Geist (body), Geist Mono (clocks and bands, tabular figures). Self-hosted by `next/font` at build time, so `font-src 'self'` is enough.
+
 ## Current phase
 
 Phases 1 to 5 are built, and production finally runs the schema the code expects. The remaining work is verification, not construction.
