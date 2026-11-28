@@ -7,11 +7,33 @@
  */
 import Link from "next/link";
 import { auth } from "@/auth";
+import Icon from "@/components/Icon";
 import SaveToNotebook from "@/components/SaveToNotebook";
+import SegmentedField from "@/components/SegmentedField";
 import VocabList from "@/components/VocabList";
 import { ensureUser } from "@/lib/db/users";
 import { listVocab, vocabCounts, type VocabSource } from "@/lib/db/vocab";
 import { VOCAB_SOURCES } from "@/lib/schemas";
+
+const SOURCE_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "feedback", label: "From feedback" },
+  { value: "manual", label: "Added by hand" },
+] as const;
+
+const SOURCE_LABEL: Record<string, string> = {
+  feedback: "From feedback",
+  manual: "Added by hand",
+};
+
+/** The same view without one filter, for the removable chips. */
+function hrefWithout(applied: { search: string; source: string }, drop: "search" | "source") {
+  const params = new URLSearchParams();
+  if (drop !== "search" && applied.search) params.set("search", applied.search);
+  if (drop !== "source" && applied.source !== "all") params.set("source", applied.source);
+  const query = params.toString();
+  return query ? `/vocab?${query}` : "/vocab";
+}
 
 export default async function VocabPage({
   searchParams,
@@ -42,6 +64,8 @@ export default async function VocabPage({
     vocabCounts(userId),
   ]);
 
+  const activeCount = (search ? 1 : 0) + (source !== "all" ? 1 : 0);
+
   return (
     <main className="shell">
       <header className="shell__header">
@@ -69,33 +93,89 @@ export default async function VocabPage({
         </section>
       ) : null}
 
-      <form className="card filters-form" method="get">
-        <h2>Find a phrase</h2>
-        <div className="field field--wide">
-          <label htmlFor="search">Search</label>
-          <input
-            id="search"
-            name="search"
-            type="search"
-            defaultValue={search}
-            placeholder="phrase, meaning or example"
-          />
+      <form
+        className="card filter-panel"
+        method="get"
+        role="search"
+        aria-labelledby="find-title"
+      >
+        <div className="filter-panel__head">
+          <h2 id="find-title" className="filter-panel__title">
+            <Icon name="search" />
+            Find a phrase
+          </h2>
+          <p className="filter-panel__count" aria-live="polite">
+            {entries.length} {entries.length === 1 ? "phrase" : "phrases"}
+            {activeCount > 0 ? " match" : ""}
+          </p>
         </div>
-        <div className="field">
-          <label htmlFor="source">Source</label>
-          <select id="source" name="source" defaultValue={source}>
-            <option value="all">Everything</option>
-            <option value="feedback">Saved from feedback</option>
-            <option value="manual">Added by hand</option>
-          </select>
+
+        <div className="filter-panel__grid">
+          <div className="filter-panel__group filter-panel__group--full">
+            <label className="field__label" htmlFor="search">
+              Search
+            </label>
+            <span className="search-field">
+              <Icon name="search" />
+              <input
+                id="search"
+                name="search"
+                type="search"
+                className="input"
+                defaultValue={search}
+                placeholder="Phrase, meaning or example"
+                enterKeyHint="search"
+              />
+            </span>
+          </div>
+
+          <div className="filter-panel__group filter-panel__group--full">
+            <SegmentedField
+              name="source"
+              legend="Source"
+              options={SOURCE_OPTIONS}
+              value={source}
+            />
+          </div>
         </div>
-        <div className="row">
+
+        <div className="filter-panel__actions">
           <button type="submit" className="button">
             Search
           </button>
-          <Link className="button button--quiet" href="/vocab">
-            Clear
-          </Link>
+          {activeCount > 0 ? (
+            <>
+              <Link className="button button--ghost" href="/vocab">
+                Clear all
+              </Link>
+              <ul className="filter-chips" aria-label="Applied filters">
+                {search ? (
+                  <li>
+                    <Link
+                      className="chip chip--active chip--removable"
+                      href={hrefWithout({ search, source }, "search")}
+                      aria-label={`Remove search: ${search}`}
+                    >
+                      &ldquo;{search}&rdquo;
+                      <Icon name="close" />
+                    </Link>
+                  </li>
+                ) : null}
+                {source !== "all" ? (
+                  <li>
+                    <Link
+                      className="chip chip--active chip--removable"
+                      href={hrefWithout({ search, source }, "source")}
+                      aria-label={`Remove filter: ${SOURCE_LABEL[source]}`}
+                    >
+                      {SOURCE_LABEL[source]}
+                      <Icon name="close" />
+                    </Link>
+                  </li>
+                ) : null}
+              </ul>
+            </>
+          ) : null}
         </div>
       </form>
 

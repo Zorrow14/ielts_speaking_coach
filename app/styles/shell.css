@@ -1,8 +1,20 @@
 /*
  * App shell: the frame every signed-in page sits in.
  *
- *   < 48rem   bottom tab bar, fixed, above the iOS home indicator
- *   >= 48rem  left sidebar, sticky, full height
+ *   sidebar      at least 48rem wide AND 35rem (560px) tall
+ *   bottom bar   everything else, phones held sideways included
+ *
+ * The height condition exists because the sidebar never scrolls. A phone in
+ * landscape (about 844 x 390) is wide enough for a sidebar but far too short,
+ * and would clip the theme switch and sign-out; it gets the bottom bar,
+ * which suits a touch screen anyway. 560px is the shortest window measured
+ * to fit the compact sidebar with sign-out fully visible.
+ *
+ * Every media query that chooses between the two layouts uses exactly
+ *   sidebar:     (min-width: 48rem) and (min-height: 35rem)
+ *   bottom bar:  (max-width: 47.99rem), (max-height: 34.99rem)
+ * including the ones in components.css (.dialog--sheet) and pages.css
+ * (.recorder). Change them together.
  *
  * Both navs are rendered by components/Nav.tsx; CSS shows exactly one, so the
  * hidden one is display:none and therefore absent from the accessibility tree
@@ -22,7 +34,7 @@
     padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
   }
 
-  @media (min-width: 48rem) {
+  @media (min-width: 48rem) and (min-height: 35rem) {
     .app:has(> .nav) {
       display: grid;
       grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -141,7 +153,7 @@
     background: var(--color-accent);
   }
 
-  @media (min-width: 48rem) {
+  @media (min-width: 48rem) and (min-height: 35rem) {
     .nav {
       position: sticky;
       top: 0;
@@ -156,13 +168,18 @@
       display: none;
     }
 
+    /*
+     * Never scrolls. The sidebar is a fixed frame, so instead of a scrollbar
+     * it tightens its own spacing on shorter windows (below) to keep every
+     * item, sign-out included, on screen.
+     */
     .nav__sidebar {
       display: flex;
       flex-direction: column;
       gap: var(--space-5);
       height: 100%;
       padding: var(--space-5) var(--space-3);
-      overflow-y: auto;
+      overflow: hidden;
     }
   }
 
@@ -262,12 +279,17 @@
     text-align: center;
   }
 
+  /*
+   * No side padding: the sidebar already has it. With its own on top, the
+   * footer was narrower than the links above it, the theme switch had no room,
+   * and "Sign out" sat 12px to the right of every other nav item.
+   */
   .nav__footer {
     margin-top: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    padding: var(--space-3);
+    padding-top: var(--space-4);
     border-top: var(--border-width) solid var(--color-border);
   }
 
@@ -285,6 +307,37 @@
     gap: var(--space-2);
     padding-top: var(--space-4);
     border-top: var(--border-width) solid var(--color-border);
+  }
+
+  /* Placed after the base nav rules on purpose: at equal specificity the
+     later rule wins, so these must come last to tighten anything. */
+  /* Short windows, e.g. a laptop with the browser's toolbars showing. */
+  @media (min-width: 48rem) and (min-height: 35rem) and (max-height: 46rem) {
+    .nav__sidebar {
+      gap: var(--space-3);
+      padding-block: var(--space-4);
+    }
+
+    .nav__group-label {
+      padding-top: var(--space-1);
+    }
+
+    .nav__footer {
+      gap: var(--space-2);
+      padding-top: var(--space-3);
+    }
+  }
+
+  /* Very short: drop the section label, which is the one purely
+     decorative row, rather than clip a real destination. */
+  @media (min-width: 48rem) and (min-height: 35rem) and (max-height: 38rem) {
+    .nav__group-label {
+      display: none;
+    }
+
+    .nav__brand {
+      padding-block: var(--space-1);
+    }
   }
 
   @media (forced-colors: active) {

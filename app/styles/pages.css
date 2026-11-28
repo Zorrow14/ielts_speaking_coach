@@ -133,7 +133,7 @@
    * On a phone the controls stay reachable while a long cue card scrolls.
    * They sit ABOVE the fixed bottom nav, not behind it.
    */
-  @media (max-width: 47.99rem) {
+  @media (max-width: 47.99rem), (max-height: 34.99rem) {
     .recorder {
       position: sticky;
       bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));

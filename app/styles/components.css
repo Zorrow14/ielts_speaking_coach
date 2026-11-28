@@ -350,17 +350,38 @@
    * and the selected-state announcement come from the browser for free.
    * Used by the theme switch.
    */
+  /*
+   * Fills its container with equal-width options, whatever the count.
+   *
+   * The fieldset is only the semantic wrapper. `min-inline-size: 0` undoes
+   * its browser default of min-content, which is what made the theme switch
+   * overflow the sidebar and cut "Dark" off. It is also the size container
+   * for the query below, so the layout follows the space the control
+   * actually has, not the width of the screen.
+   */
   .segmented {
-    display: inline-flex;
-    padding: var(--space-1);
-    gap: var(--space-1);
+    container-type: inline-size;
+    width: 100%;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
     border: 0;
+  }
+
+  .segmented__track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    padding: var(--space-1);
     border-radius: var(--radius-md);
     background: var(--color-surface-2);
   }
 
   .segmented__option {
     position: relative;
+    display: flex;
+    min-width: 0;
   }
 
   .segmented__option input {
@@ -372,13 +393,19 @@
   }
 
   .segmented__option span {
-    display: inline-flex;
+    display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-1);
+    width: 100%;
     min-height: calc(var(--tap-min) - 2 * var(--space-1));
-    padding: var(--space-1) var(--space-3);
+    padding: var(--space-1) var(--space-2);
     border-radius: calc(var(--radius-md) - 2px);
     font-size: var(--text-sm);
+    line-height: 1.25;
+    /* A long label ("From feedback") wraps onto two centred lines on a
+       narrow phone rather than spilling out of its option. */
+    text-align: center;
     color: var(--color-text-muted);
     transition: background-color var(--duration-fast) var(--ease-standard);
   }
@@ -386,6 +413,37 @@
   .segmented__option svg {
     width: 1rem;
     height: 1rem;
+    flex: none;
+  }
+
+  /*
+   * Narrow container (the sidebar is about 13rem): icon above label, so all
+   * three options fit with their labels intact rather than being truncated.
+   * Wide container (the phone sheet): icon and label side by side.
+   */
+  @container (max-width: 17rem) {
+    .segmented__option span {
+      flex-direction: column;
+      gap: 0.125rem;
+      padding: var(--space-1);
+      font-size: var(--text-xs);
+      line-height: 1.2;
+    }
+  }
+
+  /*
+   * A visible legend is the group's label. Floated so it lays out as a normal
+   * block: a legend otherwise renders straddling the fieldset's border.
+   */
+  .segmented > legend:not(.visually-hidden) {
+    float: left;
+    width: 100%;
+    margin-bottom: var(--space-1);
+    padding: 0;
+  }
+
+  .segmented > legend + .segmented__track {
+    clear: both;
   }
 
   .segmented__option input:checked + span {
@@ -397,6 +455,184 @@
   .segmented__option input:focus-visible + span {
     outline: var(--focus-ring-width) solid var(--color-accent);
     outline-offset: 1px;
+  }
+
+  /* =====================================================================
+     Select and search inputs
+     ===================================================================== */
+
+  /*
+   * A select with its own chevron, drawn with two borders rather than an SVG
+   * data URI, so it takes its colour from a token and needs no raw colour.
+   */
+  .select {
+    position: relative;
+    display: block;
+  }
+
+  .select select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 2.5rem;
+    cursor: pointer;
+  }
+
+  .select::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: var(--space-4);
+    width: 0.5rem;
+    height: 0.5rem;
+    border-right: 2px solid var(--color-text-muted);
+    border-bottom: 2px solid var(--color-text-muted);
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+  }
+
+  .search-field {
+    position: relative;
+    display: block;
+  }
+
+  .search-field svg {
+    position: absolute;
+    top: 50%;
+    left: var(--space-3);
+    width: 1.15rem;
+    height: 1.15rem;
+    transform: translateY(-50%);
+    color: var(--color-text-muted);
+    pointer-events: none;
+  }
+
+  .search-field .input {
+    padding-left: calc(var(--space-3) + 1.15rem + var(--space-2));
+  }
+
+  /* =====================================================================
+     Filter panel
+     ===================================================================== */
+
+  /*
+   * A plain GET form, laid out as a compact panel: a header with the result
+   * count, the controls in a grid, then the actions and any active filters as
+   * removable chips. No JavaScript - each chip is a link to the same view
+   * without that one filter.
+   */
+  .filter-panel {
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5) var(--space-5);
+  }
+
+  .filter-panel__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .filter-panel__title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+  }
+
+  .filter-panel__title svg {
+    width: 1.15rem;
+    height: 1.15rem;
+    color: var(--color-text-muted);
+  }
+
+  .filter-panel__count {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * One column. Two columns squeezed the date inputs until "01/11/2026" was
+   * cut off - date fields need room, and how much depends on the locale.
+   */
+  .filter-panel__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* Each group is a size container, so a control inside can adapt to the
+     space it actually has rather than to the width of the screen. */
+  .filter-panel__group {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .filter-panel__group--full {
+    grid-column: 1 / -1;
+  }
+
+  /*
+   * From and To, each with a visible label. Side by side when the group has
+   * room for two full date fields; stacked on a narrow phone, where two
+   * fields abreast truncate the date.
+   */
+  .date-range {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .date-range__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .date-range__label {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  @container (max-width: 22rem) {
+    .date-range {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .filter-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding-top: var(--space-4);
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    list-style: none;
+  }
+
+  /* An applied filter. The whole chip is the "remove" link. */
+  .chip--removable {
+    gap: var(--space-2);
+    padding-right: var(--space-3);
+  }
+
+  .chip--removable svg {
+    width: 0.9rem;
+    height: 0.9rem;
+    flex: none;
   }
 
   /* =====================================================================
@@ -566,7 +802,7 @@
   }
 
   /* On a phone, a dialog becomes a sheet attached to the bottom edge. */
-  @media (max-width: 47.99rem) {
+  @media (max-width: 47.99rem), (max-height: 34.99rem) {
     .dialog--sheet {
       margin: auto 0 0;
       width: 100%;

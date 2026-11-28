@@ -10,6 +10,8 @@
  */
 import Link from "next/link";
 import { auth } from "@/auth";
+import Icon from "@/components/Icon";
+import SegmentedField from "@/components/SegmentedField";
 import { ensureUser } from "@/lib/db/users";
 import {
   fixTheseFirst,
@@ -39,6 +41,36 @@ const CATEGORY_LABEL: Record<MistakeCategory, string> = {
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+const PART_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "1", label: "Part 1" },
+  { value: "2", label: "Part 2" },
+  { value: "3", label: "Part 3" },
+] as const;
+
+/**
+ * The same view without one filter, for the removable chips. Only applied
+ * (validated) filters are carried over, so a bad value in the URL is dropped
+ * rather than preserved.
+ */
+function hrefWithout(
+  filters: Record<string, string | undefined>,
+  drop: string,
+): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (key !== drop && value) params.set(key, value);
+  }
+  const query = params.toString();
+  return query ? `/mistakes?${query}` : "/mistakes";
+}
+
+const SHORT_DATE = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
 
 export default async function MistakesPage({
   searchParams,
@@ -80,6 +112,24 @@ export default async function MistakesPage({
     repeatedPairs(userId, filters),
     fixTheseFirst(userId),
   ]);
+
+  // What is actually applied, as URL values, for the chips and their links.
+  const applied: Record<string, string | undefined> = {
+    category: filters.category,
+    part: filters.part ? String(filters.part) : undefined,
+    from: filters.from,
+    to: filters.to,
+  };
+  const formatDay = (iso: string) => SHORT_DATE.format(new Date(`${iso}T00:00:00Z`));
+  const chips = [
+    filters.category
+      ? { key: "category", label: CATEGORY_LABEL[filters.category] }
+      : null,
+    filters.part ? { key: "part", label: `Part ${filters.part}` } : null,
+    filters.from ? { key: "from", label: `From ${formatDay(filters.from)}` } : null,
+    filters.to ? { key: "to", label: `To ${formatDay(filters.to)}` } : null,
+  ].filter((chip): chip is { key: string; label: string } => chip !== null);
+  const activeCount = chips.length;
 
   // Group the flat pair list by category for display.
   const byCategory = new Map<MistakeCategory, RepeatedPair[]>();
@@ -125,43 +175,114 @@ export default async function MistakesPage({
         )}
       </section>
 
-      <form className="card filters-form" method="get">
-        <h2>Filter</h2>
-        <div className="field">
-          <label htmlFor="category">Category</label>
-          <select id="category" name="category" defaultValue={category ?? ""}>
-            <option value="">All categories</option>
-            {MISTAKE_CATEGORIES.map((value) => (
-              <option key={value} value={value}>
-                {CATEGORY_LABEL[value]}
-              </option>
-            ))}
-          </select>
+      <form
+        className="card filter-panel"
+        method="get"
+        aria-labelledby="filter-title"
+      >
+        <div className="filter-panel__head">
+          <h2 id="filter-title" className="filter-panel__title">
+            <Icon name="sliders" />
+            Filter
+          </h2>
+          <p className="filter-panel__count" aria-live="polite">
+            {pairs.length} {pairs.length === 1 ? "correction" : "corrections"}
+            {activeCount > 0 ? " match" : " in total"}
+          </p>
         </div>
-        <div className="field">
-          <label htmlFor="part">Part</label>
-          <select id="part" name="part" defaultValue={query.part ?? ""}>
-            <option value="">All parts</option>
-            <option value="1">Part 1</option>
-            <option value="2">Part 2</option>
-            <option value="3">Part 3</option>
-          </select>
+
+        <div className="filter-panel__grid">
+          <div className="filter-panel__group filter-panel__group--full">
+            <SegmentedField
+              name="part"
+              legend="Part"
+              options={PART_OPTIONS}
+              value={applied.part ?? ""}
+            />
+          </div>
+
+          <div className="filter-panel__group">
+            <label className="field__label" htmlFor="category">
+              Category
+            </label>
+            <span className="select">
+              <select
+                id="category"
+                name="category"
+                className="input"
+                defaultValue={category ?? ""}
+              >
+                <option value="">All categories</option>
+                {MISTAKE_CATEGORIES.map((value) => (
+                  <option key={value} value={value}>
+                    {CATEGORY_LABEL[value]}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </div>
+
+          {/* role="group" rather than a fieldset: a fieldset laid out with
+              flexbox is unreliable in Safari, and this is just as clear to a
+              screen reader ("Dates, group"). */}
+          <div
+            className="filter-panel__group"
+            role="group"
+            aria-labelledby="dates-label"
+          >
+            <span id="dates-label" className="field__label">
+              Dates
+            </span>
+            <div className="date-range">
+              <label className="date-range__field" htmlFor="from">
+                <span className="date-range__label">From</span>
+                <input
+                  id="from"
+                  name="from"
+                  type="date"
+                  className="input"
+                  defaultValue={filters.from ?? ""}
+                />
+              </label>
+              <label className="date-range__field" htmlFor="to">
+                <span className="date-range__label">To</span>
+                <input
+                  id="to"
+                  name="to"
+                  type="date"
+                  className="input"
+                  defaultValue={filters.to ?? ""}
+                />
+              </label>
+            </div>
+          </div>
         </div>
-        <div className="field">
-          <label htmlFor="from">From</label>
-          <input id="from" name="from" type="date" defaultValue={filters.from ?? ""} />
-        </div>
-        <div className="field">
-          <label htmlFor="to">To</label>
-          <input id="to" name="to" type="date" defaultValue={filters.to ?? ""} />
-        </div>
-        <div className="row">
+
+        <div className="filter-panel__actions">
           <button type="submit" className="button">
-            Apply
+            Apply filters
           </button>
-          <Link className="button button--quiet" href="/mistakes">
-            Clear
-          </Link>
+          {activeCount > 0 ? (
+            <>
+              <Link className="button button--ghost" href="/mistakes">
+                Clear all
+              </Link>
+              <ul className="filter-chips" aria-label="Applied filters">
+                {chips.map((chip) => (
+                  <li key={chip.key}>
+                    <Link
+                      className="chip chip--active chip--removable"
+                      href={hrefWithout(applied, chip.key)}
+                      aria-label={`Remove filter: ${chip.label}`}
+                    >
+                      {chip.label}
+                      <Icon name="close" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
         </div>
       </form>
 

@@ -76,6 +76,10 @@ export default function ThemeToggle({
   return (
     <fieldset className="segmented">
       <legend className="visually-hidden">Theme</legend>
+      {/* The grid lives on an inner element: a <fieldset> is a poor layout
+          container (it refuses to shrink below its content by default, and
+          Safari has a history of grid and flex bugs on it). */}
+      <div className="segmented__track">
       {OPTIONS.map((option) => {
         const id = `${idPrefix}-theme-${option.value}`;
         return (
@@ -95,6 +99,7 @@ export default function ThemeToggle({
           </label>
         );
       })}
+      </div>
     </fieldset>
   );
 }
