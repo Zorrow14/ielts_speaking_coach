@@ -13,20 +13,24 @@ export default async function PracticePartPage({
   if (!parsed.success) notFound();
 
   return (
-    <main className="shell">
-      <header className="shell__header">
-        <h1>Part {parsed.data}</h1>
-        <p className="muted">
-          Scores are AI estimates, not official IELTS bands. Your audio is sent
-          for marking and never stored.
-        </p>
+    <main className="shell practice-page">
+      <header className="practice-page__header">
+        <div className="shell__header">
+          <p className="eyebrow">Speaking practice</p>
+          <h1>Part {parsed.data}</h1>
+        </div>
+        {/* Top right rather than at the foot of a long page: leaving should be
+            easy to find, and well away from the record button. */}
+        <Link className="button button--ghost" href="/practice">
+          Leave session
+        </Link>
       </header>
+      <p className="practice-page__note">
+        Scores are AI estimates, not official IELTS bands. Your audio is sent
+        for marking and never stored.
+      </p>
 
       <PracticeSession part={parsed.data} />
-
-      <Link className="button button--quiet" href="/practice">
-        Leave this session
-      </Link>
     </main>
   );
 }

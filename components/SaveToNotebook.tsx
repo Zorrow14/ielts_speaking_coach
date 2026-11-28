@@ -11,6 +11,7 @@
  * from feedback from ones typed in by hand.
  */
 import { useState } from "react";
+import Icon from "./Icon";
 
 type Stage = "idle" | "editing" | "saving" | "saved" | "error";
 
@@ -63,7 +64,8 @@ export default function SaveToNotebook({
 
   if (stage === "saved") {
     return (
-      <p className="muted saved-note" role="status">
+      <p className="saved-note" role="status">
+        <Icon name="check" />
         Saved to your notebook.
       </p>
     );
@@ -73,9 +75,10 @@ export default function SaveToNotebook({
     return (
       <button
         type="button"
-        className="button button--tiny"
+        className="button button--ghost button--tiny save-button"
         onClick={() => setStage("editing")}
       >
+        <Icon name="book" />
         {label}
       </button>
     );

@@ -12,6 +12,7 @@
  * an estimate.
  */
 import { useEffect, useState } from "react";
+import Icon, { type IconName } from "./Icon";
 
 type Mistake = {
   category: string;
@@ -60,13 +61,17 @@ function band(value: number | null): string {
 
 /** A signed delta with a word, so the direction does not rely on colour. */
 function Delta({ value }: { value: number | null }) {
-  if (value === null) return <span className="muted">—</span>;
-  if (value === 0) return <span className="muted">no change</span>;
+  if (value === null) return <span className="muted">&mdash;</span>;
+  if (value === 0) return <span className="delta delta--same">no change</span>;
   const up = value > 0;
   return (
     <span className={up ? "delta delta--up" : "delta delta--down"}>
       {up ? "+" : ""}
-      {value.toFixed(1)} {up ? "higher" : "lower"}
+      {value.toFixed(1)}
+      {/* The sign already gives the direction without colour; the word is
+          visually dropped on narrow phones to keep the column readable, but
+          stays in the page for screen readers. */}
+      <span className="delta__word"> {up ? "higher" : "lower"}</span>
     </span>
   );
 }
@@ -75,27 +80,34 @@ function MistakeList({
   title,
   note,
   items,
+  tone,
+  icon,
 }: {
   title: string;
   note: string;
   items: Mistake[];
+  tone: "fixed" | "still" | "new";
+  icon: IconName;
 }) {
   return (
-    <section className="compare__mistakes">
+    <section className={`compare__group compare__group--${tone}`}>
       <h4>
-        {title} <span className="muted">({items.length})</span>
+        <Icon name={icon} />
+        {title} <span className="compare__count">{items.length}</span>
       </h4>
       <p className="muted">{note}</p>
       {items.length === 0 ? (
         <p className="muted">None.</p>
       ) : (
-        <ul>
+        <ul role="list">
           {items.map((mistake, index) => (
             <li key={`${mistake.original}-${index}`}>
-              <span className="tag">{mistake.category.replace(/_/g, " ")}</span>{" "}
-              <s>{mistake.original}</s> → <strong>{mistake.correction}</strong>
+              <span className="badge">{mistake.category.replace(/_/g, " ")}</span>
+              <p>
+                <s>{mistake.original}</s> &rarr; <strong>{mistake.correction}</strong>
+              </p>
               {mistake.explanation ? (
-                <div className="muted">{mistake.explanation}</div>
+                <p className="muted">{mistake.explanation}</p>
               ) : null}
             </li>
           ))}
@@ -164,44 +176,49 @@ export default function RetryComparison({ answerId }: { answerId: string }) {
   if (!data) return <p role="status">Comparing your two attempts...</p>;
 
   return (
-    <section className="card compare">
-      <h3>First attempt vs this one</h3>
-      <p className="muted">
-        Both are AI estimates, so the difference is an estimate too. This
-        attempt is not counted in your progress trend.
-      </p>
+    <section className="card compare" aria-label="First attempt compared with this one">
+      <header className="compare__head">
+        <p className="eyebrow">Second attempt</p>
+        <h3>First attempt vs this one</h3>
+        <p className="muted">
+          Both are AI estimates, so the difference is an estimate too. This
+          attempt is not counted in your progress trend.
+        </p>
+      </header>
 
-      <table className="compare__table">
-        <caption className="visually-hidden">
-          Band estimates for each attempt at this question, with the change
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Criterion</th>
-            <th scope="col">First</th>
-            <th scope="col">This time</th>
-            <th scope="col">Change</th>
-          </tr>
-        </thead>
-        <tbody>
-          {CRITERIA.map(([key, label]) => (
-            <tr key={key}>
-              <th scope="row">{label}</th>
-              <td>{band(data.first[key])}</td>
-              <td>{band(data.latest[key])}</td>
-              <td>
-                <Delta value={data.delta[key]} />
-              </td>
+      <div className="table-scroll">
+        <table className="compare__table">
+          <caption className="visually-hidden">
+            Band estimates for each attempt at this question, with the change
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Criterion</th>
+              <th scope="col">First</th>
+              <th scope="col">This time</th>
+              <th scope="col">Change</th>
             </tr>
-          ))}
-          <tr>
-            <th scope="row">Words spoken</th>
-            <td>{data.first.wordCount ?? "—"}</td>
-            <td>{data.latest.wordCount ?? "—"}</td>
-            <td className="muted">—</td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {CRITERIA.map(([key, label]) => (
+              <tr key={key} className={key === "overall" ? "compare__overall" : undefined}>
+                <th scope="row">{label}</th>
+                <td>{band(data.first[key])}</td>
+                <td>{band(data.latest[key])}</td>
+                <td>
+                  <Delta value={data.delta[key]} />
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <th scope="row">Words spoken</th>
+              <td>{data.first.wordCount ?? "\u2014"}</td>
+              <td>{data.latest.wordCount ?? "\u2014"}</td>
+              <td className="muted">&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <p className="muted">
         Pronunciation is left out of this table deliberately: it is an
@@ -209,21 +226,29 @@ export default function RetryComparison({ answerId }: { answerId: string }) {
         more into it than it can carry.
       </p>
 
-      <MistakeList
-        title="Fixed"
-        note="In your first attempt, gone from this one."
-        items={data.fixed}
-      />
-      <MistakeList
-        title="Still there"
-        note="You made the same mistake again. These are the ones to drill."
-        items={data.repeated}
-      />
-      <MistakeList
-        title="New this time"
-        note="Not in the first attempt. Often the price of trying something harder."
-        items={data.introduced}
-      />
+      <div className="compare__groups">
+        <MistakeList
+          tone="fixed"
+          icon="check"
+          title="Fixed"
+          note="In your first attempt, gone from this one."
+          items={data.fixed}
+        />
+        <MistakeList
+          tone="still"
+          icon="refresh"
+          title="Still there"
+          note="You made the same mistake again. These are the ones to drill."
+          items={data.repeated}
+        />
+        <MistakeList
+          tone="new"
+          icon="sparkle"
+          title="New this time"
+          note="Not in the first attempt. Often the price of trying something harder."
+          items={data.introduced}
+        />
+      </div>
     </section>
   );
 }

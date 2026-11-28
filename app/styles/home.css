@@ -118,18 +118,18 @@
     font-size: var(--text-md);
   }
 
-  .home__part-list {
+  .part-list {
     display: grid;
     gap: var(--space-3);
   }
 
   @media (min-width: 64rem) {
-    .home__part-list {
+    .part-list {
       grid-template-columns: repeat(3, 1fr);
     }
   }
 
-  .home__part {
+  .part-card {
     flex-direction: row;
     align-items: center;
     gap: var(--space-4);
@@ -138,13 +138,24 @@
   }
 
   @media (min-width: 64rem) {
-    .home__part {
+    .part-card {
       flex-direction: column;
       align-items: flex-start;
     }
   }
 
-  .home__part-number {
+  /* The practice chooser lists the parts one per row at every width, with
+     more room for the description than the home page's three-up grid. */
+  .part-list--stacked {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .part-list--stacked .part-card {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .part-card__number {
     display: grid;
     place-items: center;
     flex: none;
@@ -158,24 +169,24 @@
     font-weight: var(--weight-semibold);
   }
 
-  .home__part-text {
+  .part-card__text {
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
     flex: 1;
   }
 
-  .home__part-title {
+  .part-card__title {
     font-weight: var(--weight-semibold);
   }
 
-  .home__part-length {
+  .part-card__length {
     flex: none;
     font-size: var(--text-xs);
   }
 
   @media (max-width: 30rem) {
-    .home__part-length {
+    .part-card__length {
       display: none;
     }
   }

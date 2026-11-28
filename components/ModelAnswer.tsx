@@ -10,6 +10,7 @@
  * before the attempt.
  */
 import { useState } from "react";
+import Icon from "./Icon";
 
 type State =
   | { stage: "idle" }
@@ -51,13 +52,16 @@ export default function ModelAnswer({ answerId }: { answerId: string }) {
 
   if (state.stage === "ready") {
     return (
-      <section className="model-answer">
-        <h4>A band 7.5 version of your answer</h4>
+      <section className="model-answer model-answer--ready" aria-label="Band 7.5 example">
+        <p className="eyebrow">
+          <Icon name="sparkle" />
+          A band 7.5 version of your answer
+        </p>
         <p className="muted">
           Your own ideas, said more precisely. This is an example of the level,
           not a script to memorise.
         </p>
-        <p className="model-answer__text">{state.answer}</p>
+        <blockquote className="model-answer__text">{state.answer}</blockquote>
         {state.changes.length > 0 ? (
           <>
             <h5>What changed</h5>
@@ -74,6 +78,18 @@ export default function ModelAnswer({ answerId }: { answerId: string }) {
 
   return (
     <section className="model-answer">
+      <div className="model-answer__intro">
+        <span className="model-answer__icon" aria-hidden="true">
+          <Icon name="sparkle" />
+        </span>
+        <div>
+          <h4>See the same ideas at band 7.5</h4>
+          <p className="muted">
+            Your own answer, rewritten one level up. Uses one request from your
+            daily allowance.
+          </p>
+        </div>
+      </div>
       {state.stage === "error" ? (
         <p className="alert" role="alert">
           {state.message}
@@ -89,9 +105,6 @@ export default function ModelAnswer({ answerId }: { answerId: string }) {
           ? "Writing an example..."
           : "Show a Band 7.5 style example"}
       </button>
-      <p className="muted">
-        Uses one request from your daily allowance.
-      </p>
     </section>
   );
 }

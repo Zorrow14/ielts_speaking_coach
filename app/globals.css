@@ -14,7 +14,7 @@
  *   components  primitives: button, card, field, chip, tab, badge, alert,
  *               toast, dialog, empty state, skeleton, table
  *   shell       app frame and navigation
- *   pages       feature-specific styles
+ *   pages       feature-specific styles (pages.css, practice.css, home.css)
  *   utilities   single-purpose overrides, if ever needed
  *
  * See CLAUDE.md, "Design system", for how to add a component.
@@ -25,4 +25,5 @@
 @import "./styles/components.css";
 @import "./styles/shell.css";
 @import "./styles/pages.css";
+@import "./styles/practice.css";
 @import "./styles/home.css";

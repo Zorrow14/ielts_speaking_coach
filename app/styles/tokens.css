@@ -107,6 +107,10 @@
     --duration-fast: 120ms;
     --duration-base: 200ms;
     --duration-slow: 320ms;
+    /* The score reveal on the results screen: bands rise in, bars fill. */
+    --duration-reveal: 560ms;
+    /* Gap between successive items in a staggered reveal. */
+    --stagger: 80ms;
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
     --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 
@@ -182,6 +186,8 @@
       --duration-fast: 0ms;
       --duration-base: 0ms;
       --duration-slow: 0ms;
+      --duration-reveal: 0ms;
+      --stagger: 0ms;
     }
   }
 }

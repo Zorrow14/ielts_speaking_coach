@@ -11,23 +11,6 @@
      Practice
      ===================================================================== */
 
-  .practice,
-  .practice__header {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-5);
-  }
-
-  .practice__header {
-    gap: var(--space-1);
-  }
-
-  .cue-card h2 {
-    font-family: var(--font-serif);
-    font-size: var(--text-xl);
-    line-height: var(--leading-snug);
-  }
-
   .bullets,
   .mistakes,
   .history {
@@ -78,138 +61,6 @@
     color: var(--color-text-muted);
   }
 
-  /* =====================================================================
-     Recorder
-     ===================================================================== */
-
-  .recorder {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .recorder__clock,
-  .big-clock {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .recorder__clock {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-xl);
-  }
-
-  .recorder__clock .muted {
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-  }
-
-  .recorder__dot {
-    width: 0.75rem;
-    height: 0.75rem;
-    border-radius: 50%;
-    background: var(--color-danger);
-    animation: recorder-pulse 1.4s ease-in-out infinite;
-  }
-
-  @keyframes recorder-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.3;
-    }
-  }
-
-  .big-clock {
-    font-size: var(--text-display);
-    line-height: 1;
-  }
-
-  /*
-   * On a phone the controls stay reachable while a long cue card scrolls.
-   * They sit ABOVE the fixed bottom nav, not behind it.
-   */
-  @media (max-width: 47.99rem), (max-height: 34.99rem) {
-    .recorder {
-      position: sticky;
-      bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
-      z-index: var(--z-sticky);
-      padding: var(--space-3) 0;
-      background: var(--color-bg);
-    }
-  }
-
-  /* =====================================================================
-     Results
-     ===================================================================== */
-
-  .result__question {
-    font-family: var(--font-serif);
-    /* The only serif weight shipped; see the font comment in app/layout.tsx. */
-    font-weight: var(--weight-semibold);
-    font-size: var(--text-md);
-    line-height: var(--leading-snug);
-    white-space: pre-line;
-  }
-
-  .result h4 {
-    font-size: var(--text-base);
-    margin-bottom: var(--space-2);
-  }
-
-  .result section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .scores {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--space-2);
-  }
-
-  @media (min-width: 30rem) {
-    .scores {
-      grid-template-columns: 1fr 1fr;
-    }
-  }
-
-  .scores__item {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    border-radius: var(--radius-md);
-    background: var(--color-surface-2);
-  }
-
-  .scores__value,
-  .criterion__band {
-    font-family: var(--font-mono);
-    font-size: var(--text-xl);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .scores__label {
-    font-size: var(--text-sm);
-    line-height: var(--leading-snug);
-  }
-
-  .overall {
-    font-size: var(--text-md);
-  }
-
-  .transcript,
-  .model-answer__text {
-    line-height: var(--leading-loose);
-    white-space: pre-line;
-  }
-
   .mistakes li {
     padding: var(--space-3) var(--space-4);
     border-radius: var(--radius-md);
@@ -219,160 +70,6 @@
 
   .tag {
     margin-bottom: var(--space-1);
-  }
-
-  .criteria {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .criterion {
-    padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-md);
-    background: var(--color-surface-2);
-  }
-
-  .criterion__head {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-  }
-
-  .criterion__band {
-    min-width: 2.5rem;
-  }
-
-  .criterion__label {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    line-height: var(--leading-snug);
-  }
-
-  .criterion__label .muted {
-    font-weight: var(--weight-regular);
-  }
-
-  .criterion__estimate {
-    margin: var(--space-1) 0 var(--space-2);
-  }
-
-  .evidence {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .evidence li {
-    padding-left: var(--space-3);
-    border-left: 2px solid var(--color-border-strong);
-    font-size: var(--text-sm);
-    line-height: var(--leading-normal);
-  }
-
-  .evidence q {
-    font-style: italic;
-  }
-
-  .guardrails {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-
-  .provenance {
-    padding-top: var(--space-3);
-    border-top: var(--border-width) solid var(--color-border);
-    font-size: var(--text-xs);
-  }
-
-  .model-answer {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-2);
-    margin-top: var(--space-2);
-    padding: var(--space-3) var(--space-4);
-    border: var(--border-width) dashed var(--color-border-strong);
-    border-radius: var(--radius-md);
-  }
-
-  .model-answer h4,
-  .model-answer h5 {
-    margin: 0;
-  }
-
-  /* =====================================================================
-     Retry and comparison (feature A)
-     ===================================================================== */
-
-  .compare__table {
-    width: 100%;
-    margin: var(--space-3) 0;
-    border-collapse: collapse;
-  }
-
-  .compare__table th,
-  .compare__table td {
-    padding: var(--space-2) var(--space-3);
-    text-align: left;
-    border-bottom: var(--border-width) solid var(--color-border);
-  }
-
-  .compare__table thead th {
-    font-size: var(--text-xs);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-  }
-
-  .compare__table td {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Direction is carried by the word ("higher" / "lower"); colour is the
-     second channel, never the only one. */
-  .delta--up {
-    color: var(--color-success);
-    font-family: var(--font-sans);
-    font-weight: var(--weight-semibold);
-  }
-
-  .delta--down {
-    color: var(--color-warning);
-    font-family: var(--font-sans);
-    font-weight: var(--weight-semibold);
-  }
-
-  .compare__mistakes {
-    margin-top: var(--space-4);
-  }
-
-  .compare__mistakes h4 {
-    margin-bottom: var(--space-1);
-  }
-
-  .compare__mistakes ul {
-    margin-top: var(--space-2);
-    padding-left: var(--space-4);
-  }
-
-  .compare__mistakes li {
-    margin-bottom: var(--space-2);
-  }
-
-  @media (max-width: 30rem) {
-    .compare {
-      overflow-x: auto;
-    }
-
-    .compare__table {
-      min-width: 26rem;
-    }
   }
 
   /* =====================================================================
@@ -422,21 +119,6 @@
     }
   }
 
-  .save-phrase {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin-top: var(--space-2);
-    padding: var(--space-3);
-    border-radius: var(--radius-md);
-    background: var(--color-surface-2);
-  }
-
-  .saved-note {
-    margin-top: var(--space-2);
-    font-size: var(--text-sm);
-  }
-
   .vocab-list {
     list-style: none;
     display: flex;
@@ -475,15 +157,9 @@
   }
 
   @media (forced-colors: active) {
-    .criterion,
     .vocab-list li,
-    .mistakes li,
-    .scores__item {
+    .mistakes li {
       border: 1px solid CanvasText;
-    }
-
-    .recorder__dot {
-      background: Highlight;
     }
   }
 }

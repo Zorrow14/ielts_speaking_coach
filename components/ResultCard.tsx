@@ -1,18 +1,31 @@
 /**
  * Shows one marked answer. Used live after an answer and again on the history
- * page, so it takes a plain ResultView and works in a server component.
+ * pages, so it takes a plain ResultView and works in a server component: no
+ * hooks, and the expandable evidence is native <details>, which needs no
+ * JavaScript and is keyboard-accessible for free.
  *
- * Every score carries the estimate label, and Pronunciation is always marked
- * as an indicator with its confidence. That wording is a hard rule, not
- * decoration.
+ * Every score carries the full estimate label, and Pronunciation is shown in
+ * its own box as an indicator with its confidence - never with a band bar,
+ * so it cannot be read as a fourth band. That wording is a hard rule, not
+ * decoration, and tests/structure/result-labels.test.ts enforces it.
  *
- * Evidence quotes sit under each criterion on purpose: a band with the words
- * that earned it is checkable, and the learner can see what to fix.
+ * The reveal (bands rising in, bars filling) is CSS only, staggered with a
+ * --i index. Bands appear; they do not count up, because a number ticking
+ * from 0.0 to 6.5 implies a precision an estimate does not have. Under
+ * reduced motion everything is simply there.
  */
+import type { CSSProperties } from "react";
+import Icon from "./Icon";
 import ModelAnswer from "./ModelAnswer";
 import SaveToNotebook from "./SaveToNotebook";
-import type { CriterionView, MistakeView, ResultView } from "@/lib/result-view";
-import type { MistakeCategory } from "@/lib/schemas";
+import { formatClock } from "@/lib/audio";
+import {
+  confidenceLabel,
+  type CriterionView,
+  type MistakeView,
+  type ResultView,
+} from "@/lib/result-view";
+import type { MistakeCategory, PronunciationConfidence } from "@/lib/schemas";
 
 const CATEGORY_LABEL: Record<MistakeCategory, string> = {
   article: "Articles",
@@ -26,6 +39,22 @@ const CATEGORY_LABEL: Record<MistakeCategory, string> = {
   fluency: "Fluency",
   other: "Other",
 };
+
+const ESTIMATE = "AI estimate, not an official IELTS band";
+
+const CONFIDENCE_TONE: Record<PronunciationConfidence, string> = {
+  high: "badge--success",
+  medium: "badge--accent",
+  low: "badge--warning",
+  unavailable: "",
+};
+
+/** The 1-9 band as a 0-1 fill for the bar. */
+function fillFor(band: string | null): number {
+  if (band === null) return 0;
+  const value = Number(band);
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value / 9)) : 0;
+}
 
 export default function ResultCard({
   question,
@@ -43,18 +72,45 @@ export default function ResultCard({
   /** When present, the band 7.5 example can be requested for this answer. */
   answerId?: string;
 }) {
+  const bands = view?.criteria.filter((c) => c.key !== "pronunciation") ?? [];
+  const pronunciation = view?.criteria.find((c) => c.key === "pronunciation");
+
   return (
-    <article className="card result">
-      <h3 className="result__question">{question}</h3>
+    <article className="result">
+      <header className="result__head">
+        <p className="eyebrow">The question</p>
+        <h3 className="result__question">{question}</h3>
+      </header>
 
       {view ? (
         <>
-          <p className="estimate-note">
-            AI estimate, not an official IELTS band.
-          </p>
+          <section className="score-hero" aria-label="Overall estimate">
+            <div className="score-hero__main">
+              <p className="score-hero__label">Overall</p>
+              <p className="score-hero__band">{view.overall}</p>
+              {/* Directly beneath the number, never beside it. */}
+              <p className="estimate-note">{ESTIMATE}</p>
+            </div>
+            <dl className="score-hero__facts">
+              <div>
+                <dt>Words</dt>
+                <dd>{wordCount ?? 0}</dd>
+              </div>
+              {durationSec ? (
+                <div>
+                  <dt>Length</dt>
+                  <dd>{formatClock(durationSec * 1000)}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>Corrections</dt>
+                <dd>{view.mistakes.length}</dd>
+              </div>
+            </dl>
+          </section>
 
           {view.guardrails.length > 0 ? (
-            <ul className="guardrails">
+            <ul className="guardrails" role="list">
               {view.guardrails.map((note) => (
                 <li key={note.code} className="alert alert--soft">
                   {note.message}
@@ -63,39 +119,34 @@ export default function ResultCard({
             </ul>
           ) : null}
 
-          <p className="overall">
-            Overall estimate <strong>{view.overall}</strong>
-            <span className="muted">
-              {" "}
-              &mdash; AI estimate, not an official IELTS band
-            </span>
-          </p>
-
-          <section className="criteria">
-            {view.criteria.map((criterion) => (
-              <Criterion key={criterion.key} criterion={criterion} />
+          <section className="criteria" aria-label="The four criteria">
+            {bands.map((criterion, index) => (
+              <Criterion key={criterion.key} criterion={criterion} index={index} />
             ))}
+            {pronunciation ? (
+              <Pronunciation
+                criterion={pronunciation}
+                confidence={view.pronunciationConfidence}
+                index={bands.length}
+              />
+            ) : null}
           </section>
-        </>
-      ) : (
-        <p className="muted">This answer has no saved marking.</p>
-      )}
 
-      <section>
-        <h4>Transcript</h4>
-        <p className="transcript">{transcript || "(no speech detected)"}</p>
-        <p className="muted">
-          {wordCount ?? 0} words
-          {durationSec ? ` in ${durationSec} seconds` : ""}
-        </p>
-      </section>
+          {view.nextSteps.length > 0 ? (
+            <section className="result__section">
+              <h4>Next steps, highest impact first</h4>
+              <ol className="next-steps">
+                {view.nextSteps.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
 
-      {view ? (
-        <>
           {view.mistakes.length > 0 ? (
-            <section>
+            <section className="result__section">
               <h4>Mistakes and corrections</h4>
-              <ul className="mistakes">
+              <ul className="mistake-cards" role="list">
                 {view.mistakes.map((mistake, index) => (
                   <Mistake key={index} mistake={mistake} answerId={answerId} />
                 ))}
@@ -103,8 +154,19 @@ export default function ResultCard({
             </section>
           ) : null}
 
+          {view.strengths.length > 0 ? (
+            <section className="result__section">
+              <h4>What worked</h4>
+              <ul className="bullets">
+                {view.strengths.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           {view.fillerNotes.length > 0 || view.repetitionNotes.length > 0 ? (
-            <section>
+            <section className="result__section">
               <h4>Fillers and repetition</h4>
               <ul className="bullets">
                 {view.fillerNotes.map((note, index) => (
@@ -116,32 +178,28 @@ export default function ResultCard({
               </ul>
             </section>
           ) : null}
+        </>
+      ) : (
+        <p className="muted">This answer has no saved marking.</p>
+      )}
 
-          {view.strengths.length > 0 ? (
-            <section>
-              <h4>What worked</h4>
-              <ul className="bullets">
-                {view.strengths.map((item, index) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+      <details className="disclosure result__transcript" open>
+        <summary>
+          <span>What you said</span>
+          <span className="disclosure__meta">
+            {wordCount ?? 0} words
+            {durationSec ? ` in ${durationSec} seconds` : ""}
+          </span>
+          <Icon name="chevronDown" className="disclosure__chevron" />
+        </summary>
+        <p className="transcript">{transcript || "(no speech detected)"}</p>
+      </details>
 
-          {view.nextSteps.length > 0 ? (
-            <section>
-              <h4>Next steps, highest impact first</h4>
-              <ol className="bullets bullets--ranked">
-                {view.nextSteps.map((item, index) => (
-                  <li key={index}>{item}</li>
-                ))}
-              </ol>
-            </section>
-          ) : null}
-
+      {view ? (
+        <>
           {answerId ? <ModelAnswer answerId={answerId} /> : null}
 
-          <p className="muted provenance">
+          <p className="provenance">
             Marked by {view.model}, prompt {view.promptVersion}. All scores are
             AI estimates, not official IELTS bands.
           </p>
@@ -151,47 +209,107 @@ export default function ResultCard({
   );
 }
 
-function Criterion({ criterion }: { criterion: CriterionView }) {
-  const isPronunciation = criterion.key === "pronunciation";
-
+function Evidence({ quotes }: { quotes: string[] }) {
+  if (quotes.length === 0) {
+    return <p className="criterion__none">No evidence quoted for this criterion.</p>;
+  }
   return (
-    <div className="criterion">
+    <details className="disclosure disclosure--quiet">
+      <summary>
+        <span>Evidence from your answer</span>
+        <span className="disclosure__count">{quotes.length}</span>
+        <Icon name="chevronDown" className="disclosure__chevron" />
+      </summary>
+      <ul className="evidence" role="list">
+        {quotes.map((quote, index) => (
+          <li key={index}>
+            <q>{quote}</q>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function Criterion({
+  criterion,
+  index,
+}: {
+  criterion: CriterionView;
+  index: number;
+}) {
+  return (
+    <div className="criterion" style={{ "--i": index } as CSSProperties}>
       <div className="criterion__head">
-        <span className="criterion__band">{criterion.band ?? "n/a"}</span>
-        <span className="criterion__label">
-          {criterion.label}
-          {isPronunciation ? (
-            <span className="muted"> (indicator only, not a band)</span>
-          ) : null}
-        </span>
+        <h4 className="criterion__label">{criterion.label}</h4>
+        <p className="criterion__band">{criterion.band ?? "n/a"}</p>
       </div>
-
-      <p className="muted criterion__estimate">
-        AI estimate, not an official IELTS band
-        {isPronunciation ? " — the least reliable of the four" : ""}
-      </p>
-
-      {criterion.evidence.length > 0 ? (
-        <ul className="evidence">
-          {criterion.evidence.map((quote, index) => (
-            <li key={index}>
-              <q>{quote}</q>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="muted">No evidence quoted for this criterion.</p>
-      )}
+      <div className="band-bar" aria-hidden="true">
+        <span
+          className="band-bar__fill"
+          style={{ "--fill": fillFor(criterion.band).toFixed(3) } as CSSProperties}
+        />
+      </div>
+      <p className="estimate-note">{ESTIMATE}</p>
 
       {criterion.details.length > 0 ? (
-        <ul className="bullets bullets--tight">
-          {criterion.details.map((detail, index) => (
-            <li key={index} className="muted">
-              {detail}
-            </li>
+        <ul className="criterion__details" role="list">
+          {criterion.details.map((detail, i) => (
+            <li key={i}>{detail}</li>
           ))}
         </ul>
       ) : null}
+
+      <Evidence quotes={criterion.evidence} />
+    </div>
+  );
+}
+
+/**
+ * Its own box, deliberately unlike the three bands: no bar, the value set
+ * smaller, an "indicator, not a band" badge and the confidence beside it.
+ * Judging pronunciation from one phone recording is the weakest thing this
+ * app does, and the layout should say so before the words do.
+ */
+function Pronunciation({
+  criterion,
+  confidence,
+  index,
+}: {
+  criterion: CriterionView;
+  confidence: PronunciationConfidence;
+  index: number;
+}) {
+  // The confidence line is shown as a badge, so drop it from the details.
+  const issues = criterion.details.filter((d) => !d.startsWith("Confidence:"));
+
+  return (
+    <div className="indicator" style={{ "--i": index } as CSSProperties}>
+      <div className="criterion__head">
+        <h4 className="criterion__label">{criterion.label}</h4>
+        <span className="badge">Indicator only, not a band</span>
+      </div>
+
+      <p className="indicator__value">
+        <span className="indicator__number">{criterion.band ?? "n/a"}</span>
+        <span className={`badge ${CONFIDENCE_TONE[confidence]}`}>
+          Confidence: {confidence}
+        </span>
+        <span className="indicator__why">{confidenceLabel(confidence)}</span>
+      </p>
+      <p className="estimate-note">
+        {ESTIMATE} &mdash; the least reliable of the four
+      </p>
+
+      {issues.length > 0 ? (
+        <ul className="criterion__details" role="list">
+          {issues.map((issue, i) => (
+            <li key={i}>{issue}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      <Evidence quotes={criterion.evidence} />
     </div>
   );
 }
@@ -204,13 +322,24 @@ function Mistake({
   answerId?: string;
 }) {
   return (
-    <li>
-      <span className="tag">{CATEGORY_LABEL[mistake.category]}</span>
-      <p>
-        <s>{mistake.original}</s> &rarr; <strong>{mistake.correction}</strong>
+    <li className="mistake-card">
+      <span className="badge">{CATEGORY_LABEL[mistake.category]}</span>
+      <p className="mistake-card__line mistake-card__line--was">
+        <Icon name="close" />
+        <span>
+          <span className="visually-hidden">You said: </span>
+          <s>{mistake.original}</s>
+        </span>
+      </p>
+      <p className="mistake-card__line mistake-card__line--fix">
+        <Icon name="check" />
+        <span>
+          <span className="visually-hidden">Better: </span>
+          {mistake.correction}
+        </span>
       </p>
       {mistake.explanation ? (
-        <p className="muted">{mistake.explanation}</p>
+        <p className="mistake-card__why">{mistake.explanation}</p>
       ) : null}
       {/* The correction is the phrase worth keeping, prefilled and editable. */}
       <SaveToNotebook

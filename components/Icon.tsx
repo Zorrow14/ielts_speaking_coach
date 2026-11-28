@@ -103,6 +103,22 @@ const PATHS = {
       <circle cx="10" cy="17" r="2" />
     </>
   ),
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" stroke="none" />,
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4.5V11h-6.5" />
+    </>
+  ),
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5V13" />
+      <circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
+    </>
+  ),
+  chevronDown: <path d="m6 9 6 6 6-6" />,
+  sparkle: <path d="M12 3.5 13.8 8.4 18.7 10.2 13.8 12 12 16.9 10.2 12 5.3 10.2 10.2 8.4Z" />,
   arrowRight: <path d="M5 12h14m-6-6 6 6-6 6" />,
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,

@@ -200,6 +200,15 @@ System by default; a System / Light / Dark switch (`components/ThemeToggle.tsx`)
 
 **Navigation**: a sidebar when the window is at least 48rem wide **and** 35rem (560px) tall; the bottom tab bar (Home, Practise, History, Progress, More) everywhere else, landscape phones included. **The sidebar never scrolls** (`overflow: hidden`): it tightens its spacing below 46rem tall and drops the section label below 38rem, and the height condition hands short windows to the bottom bar rather than clip sign-out. 560px is the shortest window measured to fit. Every media query that chooses between the two layouts must use the same pair of conditions - see the comment at the top of `app/styles/shell.css`. Both live in one `<nav>` landmark; CSS shows exactly one, so the hidden one is out of the accessibility tree. Safe areas are handled with `viewport-fit=cover` and `env(safe-area-inset-*)`.
 
+**The practice loop** (`app/styles/practice.css`, Stage 2):
+
+- **Level meter** (`lib/use-level-meter.ts`) is a progressive enhancement beside MediaRecorder, never in front of it. Its AudioContext is created and resumed **synchronously inside the "Start recording" tap, before the first await** (iOS Safari only runs a context started in a user gesture); it is attached only **after** `recorder.start()`; the analyser is never connected to `destination`, so nothing plays; it reads loudness into the DOM per frame and stores and sends nothing; every Web Audio call is guarded, and if any fails - or the context stays suspended - the plain pulsing dot is shown instead. `tests/structure/result-labels.test.ts` pins all of this by reading the source.
+- **Preparation ring** (`components/PrepRing.tsx`) is drawn from the countdown PracticeSession already keeps from `Date.now()`, never its own CSS animation, so the ring and the number cannot disagree.
+- **The recording dock** is sticky above the bottom bar on phones and becomes a compact bar while recording, so the Part 2 cue card stays readable.
+- **Results** (`components/ResultCard.tsx`) stays hook-free because the history pages render it on the server; evidence expands with native `<details>` (the `.disclosure` primitive). Every score - overall, each band, the pronunciation indicator - carries the full "AI estimate, not an official IELTS band" label, and Pronunciation is its own dashed box with a confidence badge and **no band bar**. The same test enforces both.
+- **Runtime custom properties** set from TSX or JS (`--offset`, `--level`, `--progress`, `--at`, `--fill`, `--i`) are declared with a default on the element that uses them. An inline style on that element still wins, and the design-token test can then tell a deliberate runtime value from a typo.
+- **Screen readers**: one `role="status"` chip announces each stage (Ready, Recording, Uploading, Marking, Marked); the preparation countdown speaks at 60/45/30/15/5 seconds rather than every second.
+
 **Fonts**: Source Serif 4 (titles and question text, one static 600 weight), Geist (body), Geist Mono (clocks and bands, tabular figures). Self-hosted by `next/font` at build time, so `font-src 'self'` is enough.
 
 ## Current phase

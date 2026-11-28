@@ -23,10 +23,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Icon from "./Icon";
+import PrepRing from "./PrepRing";
 import Recorder, { type Recording } from "./Recorder";
 import ResultCard from "./ResultCard";
 import RetryComparison from "./RetryComparison";
-import { PART2_PREP_MS, PART2_SOFT_LIMIT_MS, formatClock } from "@/lib/audio";
+import { PART2_PREP_MS, PART2_SOFT_LIMIT_MS } from "@/lib/audio";
 import type { ResultView } from "@/lib/result-view";
 import type { Part, QuestionResponse } from "@/lib/schemas";
 
@@ -86,6 +88,8 @@ export default function PracticeSession({ part }: { part: Part }) {
   const [retryOf, setRetryOf] = useState<string | null>(null);
   /** The answer id whose two attempts the comparison panel is showing. */
   const [comparisonFor, setComparisonFor] = useState<string | null>(null);
+  /** Display only: whether the recorder is capturing right now. */
+  const [recording, setRecording] = useState(false);
 
   // The transcript of the previous answer, which Part 3 follow-ups build on.
   const previousRef = useRef<{ question: string; transcript: string } | null>(
@@ -304,15 +308,50 @@ export default function PracticeSession({ part }: { part: Part }) {
   }, [latest, part]);
 
   const busy = stage === "uploading" || stage === "evaluating";
+  const current = Math.min(answeredCount + 1, total);
+  const status = stageStatus(stage, recording);
 
   return (
-    <div className="practice">
+    <div className={`practice practice--${stage}`}>
       <header className="practice__header">
-        <p className="muted">
-          Part {part} &middot; answer {Math.min(answeredCount + 1, total)} of {total}
-          {usage ? ` · ${usage.used}/${usage.cap} requests used today` : ""}
+        <div className="practice__meta">
+          <p className="eyebrow">
+            Part {part}
+            {total > 1 ? ` · Question ${current} of ${total}` : " · Long turn"}
+          </p>
+          {total > 1 ? (
+            // The eyebrow already says "Question 2 of 4"; the dots are the
+            // same fact drawn, so they are hidden from screen readers.
+            <ol className="practice__steps" aria-hidden="true">
+              {Array.from({ length: total }, (_, index) => (
+                <li
+                  key={index}
+                  className={
+                    index < answeredCount
+                      ? "is-done"
+                      : index === answeredCount && stage !== "finished"
+                        ? "is-current"
+                        : undefined
+                  }
+                />
+              ))}
+            </ol>
+          ) : null}
+        </div>
+
+        {/* The one live region for the stage, so each change - Recording,
+            Uploading, Marking, Marked - is announced once. */}
+        <p className={`status status--${status.tone}`} role="status" aria-live="polite">
+          <span className="status__dot" aria-hidden="true" />
+          {status.label}
         </p>
       </header>
+
+      {usage ? (
+        <p className="practice__usage">
+          {usage.used} of {usage.cap} practice requests used today
+        </p>
+      ) : null}
 
       {error ? (
         <p className="alert" role="alert">
@@ -321,7 +360,11 @@ export default function PracticeSession({ part }: { part: Part }) {
       ) : null}
 
       {stage === "loading" ? (
-        <p role="status">Preparing your question...</p>
+        <section className="question-sheet question-sheet--loading" aria-hidden="true">
+          <span className="skeleton skeleton--text" style={{ width: "30%" }} />
+          <span className="skeleton skeleton--title" style={{ width: "90%" }} />
+          <span className="skeleton skeleton--title" style={{ width: "65%" }} />
+        </section>
       ) : null}
 
       {retryOf ? (
@@ -336,55 +379,80 @@ export default function PracticeSession({ part }: { part: Part }) {
       ) : null}
 
       {stage === "prep" ? (
-        <section className="card">
-          <h3>Preparation time</h3>
-          <p className="big-clock" aria-hidden="true">
-            {formatClock(prepMsLeft)}
-          </p>
-          {/* The visible clock ticks five times a second; this says the same
-              thing in a form a screen reader can use. */}
+        <section className="card prep">
+          <PrepRing msLeft={prepMsLeft} totalMs={PART2_PREP_MS} />
+          <div className="prep__text">
+            <h3>Preparation time</h3>
+            <p className="muted">
+              Make notes on paper if you like. You then speak for up to two
+              minutes.
+            </p>
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={() => setStage("ready")}
+            >
+              Skip preparation
+            </button>
+          </div>
+          {/* Spoken at milestones only. Announcing every second, as this
+              used to, floods a screen reader with sixty interruptions. */}
           <p className="visually-hidden" role="status" aria-live="polite">
-            {prepMsLeft <= 0
-              ? "Preparation time finished."
-              : `About ${Math.ceil(prepMsLeft / 1000)} seconds of preparation left.`}
+            {prepAnnouncement(prepMsLeft)}
           </p>
-          <p className="muted">
-            Make notes on paper if you like. You then speak for up to two
-            minutes.
-          </p>
-          <button
-            type="button"
-            className="button button--quiet"
-            onClick={() => setStage("ready")}
-          >
-            Skip preparation
-          </button>
         </section>
       ) : null}
 
       {stage === "ready" && question ? (
-        <section className="card">
+        <section className={`dock${recording ? " dock--recording" : ""}`}>
           <Recorder
             onComplete={submit}
+            onRecordingChange={setRecording}
             softLimitMs={part === 2 ? PART2_SOFT_LIMIT_MS : undefined}
             label={answeredCount === 0 ? "Start recording" : "Record your answer"}
           />
-          <p className="muted">
-            Recording stops automatically at three minutes. Audio is sent for
-            marking and never saved. Keep the screen on and this tab open while
-            you speak.
-          </p>
+          {!recording ? (
+            <p className="dock__hint">
+              Stops automatically at three minutes. Audio is sent for marking
+              and never saved. Keep the screen on and this tab open while you
+              speak.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
       {busy ? (
-        <section className="card">
-          <p role="status" aria-live="polite">
+        <section className="card examiner">
+          <div className="examiner__visual" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <h3 className="examiner__title">
             {stage === "uploading"
-              ? "Uploading your recording..."
-              : "Marking your answer. This usually takes a few seconds."}
-          </p>
+              ? "Sending your answer to the examiner"
+              : "The examiner is listening and thinking"}
+          </h3>
+          <ol className="examiner__steps">
+            <li className="is-done">
+              <Icon name="check" />
+              Recorded
+            </li>
+            <li className={stage === "uploading" ? "is-current" : "is-done"}>
+              {stage === "uploading" ? <span className="examiner__spinner" aria-hidden="true" /> : <Icon name="check" />}
+              Uploading
+            </li>
+            <li className={stage === "evaluating" ? "is-current" : undefined}>
+              {stage === "evaluating" ? <span className="examiner__spinner" aria-hidden="true" /> : <span className="examiner__pending" aria-hidden="true" />}
+              Marking
+            </li>
+          </ol>
           <p className="muted">
+            {stage === "uploading"
+              ? "Uploading your recording."
+              : "Marking your answer. This usually takes a few seconds."}{" "}
             Stay on this page. If it fails you can retry without recording
             again.
           </p>
@@ -392,32 +460,38 @@ export default function PracticeSession({ part }: { part: Part }) {
       ) : null}
 
       {stage === "failed" && pending ? (
-        <section className="card">
-          <h3>That did not go through</h3>
-          <p>
-            Your recording is still here &mdash;{" "}
-            {Math.round(pending.recording.durationSec)} seconds, held in memory
-            only. Retrying sends the same audio, and cannot be marked or
-            counted against your allowance twice.
-          </p>
-          <div className="row">
-            <button type="button" className="button" onClick={retry}>
-              Try again
-            </button>
-            <button
-              type="button"
-              className="button button--quiet"
-              onClick={discard}
-            >
-              Discard and re-record
-            </button>
+        <section className="card outcome outcome--failed">
+          <div className="outcome__icon" aria-hidden="true">
+            <Icon name="alert" />
           </div>
-          {pending.attempts > 1 ? (
-            <p className="muted">
-              {pending.attempts} attempts so far. If this keeps failing, check
-              your connection or come back in a few minutes.
+          <div className="outcome__body">
+            <h3>That did not go through</h3>
+            <p>
+              Your recording is still here &mdash;{" "}
+              {Math.round(pending.recording.durationSec)} seconds, held in memory
+              only. Retrying sends the same audio, and cannot be marked or
+              counted against your allowance twice.
             </p>
-          ) : null}
+            <div className="button-row">
+              <button type="button" className="button" onClick={retry}>
+                <Icon name="refresh" />
+                Try again
+              </button>
+              <button
+                type="button"
+                className="button button--quiet"
+                onClick={discard}
+              >
+                Discard and re-record
+              </button>
+            </div>
+            {pending.attempts > 1 ? (
+              <p className="muted">
+                {pending.attempts} attempts so far. If this keeps failing, check
+                your connection or come back in a few minutes.
+              </p>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -433,17 +507,19 @@ export default function PracticeSession({ part }: { part: Part }) {
           />
           {comparisonFor ? <RetryComparison answerId={comparisonFor} /> : null}
 
-          <div className="button-row">
-            <button type="button" className="button" onClick={next}>
+          <div className="practice__actions">
+            <button type="button" className="button button--large" onClick={next}>
               {isLastQuestion ? "Finish session" : "Next question"}
+              <Icon name="arrowRight" />
             </button>
             {/* A second go at the same question. Kept out of the trend: see
                 EXCLUDE_RETRIES in lib/db/progress.ts. */}
             <button
               type="button"
-              className="button button--quiet"
+              className="button button--quiet button--large"
               onClick={tryAgain}
             >
+              <Icon name="refresh" />
               Try this question again
             </button>
           </div>
@@ -451,21 +527,26 @@ export default function PracticeSession({ part }: { part: Part }) {
       ) : null}
 
       {stage === "finished" ? (
-        <section className="card">
-          <h3>Session complete</h3>
-          <p>
-            You answered {answeredCount} {answeredCount === 1 ? "question" : "questions"}.
-            Everything is saved.
-          </p>
-          <div className="row">
-            {sessionId ? (
-              <Link className="button" href={`/history/${sessionId}`}>
-                Review this session
+        <section className="card outcome outcome--done">
+          <div className="outcome__icon" aria-hidden="true">
+            <Icon name="check" />
+          </div>
+          <div className="outcome__body">
+            <h3>Session complete</h3>
+            <p>
+              You answered {answeredCount} {answeredCount === 1 ? "question" : "questions"}.
+              Everything is saved.
+            </p>
+            <div className="button-row">
+              {sessionId ? (
+                <Link className="button" href={`/history/${sessionId}`}>
+                  Review this session
+                </Link>
+              ) : null}
+              <Link className="button button--quiet" href="/practice">
+                Practise again
               </Link>
-            ) : null}
-            <Link className="button button--quiet" href="/practice">
-              Practise again
-            </Link>
+            </div>
           </div>
         </section>
       ) : null}
@@ -473,14 +554,56 @@ export default function PracticeSession({ part }: { part: Part }) {
   );
 }
 
+type Tone = "neutral" | "accent" | "danger" | "success" | "warning";
+
+/** What the status chip says for each stage. Display only. */
+function stageStatus(stage: Stage, recording: boolean): { label: string; tone: Tone } {
+  switch (stage) {
+    case "loading":
+      return { label: "Preparing question", tone: "neutral" };
+    case "prep":
+      return { label: "Preparation", tone: "accent" };
+    case "ready":
+      return recording
+        ? { label: "Recording", tone: "danger" }
+        : { label: "Ready to record", tone: "neutral" };
+    case "uploading":
+      return { label: "Uploading", tone: "accent" };
+    case "evaluating":
+      return { label: "Marking", tone: "accent" };
+    case "failed":
+      return { label: "Not sent", tone: "warning" };
+    case "result":
+      return { label: "Marked", tone: "success" };
+    case "finished":
+      return { label: "Session complete", tone: "success" };
+  }
+}
+
+/**
+ * The preparation countdown, for a screen reader. The text only changes at
+ * 60, 45, 30, 15 and 5 seconds and at the end, so a polite live region speaks
+ * six times in the minute instead of sixty.
+ */
+function prepAnnouncement(ms: number): string {
+  if (ms <= 0) return "Preparation time finished.";
+  const seconds = Math.ceil(ms / 1000);
+  const milestone = [60, 45, 30, 15, 5].find(
+    (mark, index, marks) => seconds <= mark && (index === marks.length - 1 || seconds > marks[index + 1]),
+  );
+  return `${milestone ?? seconds} seconds of preparation left.`;
+}
+
 function QuestionPanel({ question }: { question: QuestionResponse }) {
   if (question.part === 2) {
     return (
-      <section className="card cue-card">
-        <p className="muted">Part 2 cue card &middot; {question.topic}</p>
-        <h2>{question.prompt}</h2>
-        <p>You should say:</p>
-        <ul className="bullets">
+      <section className="cue-card" aria-labelledby="cue-card-prompt">
+        <p className="eyebrow">Cue card &middot; {question.topic}</p>
+        <h2 id="cue-card-prompt" className="cue-card__prompt">
+          {question.prompt}
+        </h2>
+        <p className="cue-card__say">You should say:</p>
+        <ul className="cue-card__bullets">
           {question.bullets.map((bullet, index) => (
             <li key={index}>{bullet}</li>
           ))}
@@ -490,11 +613,9 @@ function QuestionPanel({ question }: { question: QuestionResponse }) {
   }
 
   return (
-    <section className="card">
-      <p className="muted">
-        Part {question.part} &middot; {question.topic}
-      </p>
-      <h2>{question.question}</h2>
+    <section className="question-sheet">
+      <p className="eyebrow">{question.topic}</p>
+      <h2 className="question-sheet__text">{question.question}</h2>
     </section>
   );
 }

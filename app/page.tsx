@@ -183,18 +183,18 @@ export default async function Home() {
 
       <section className="home__parts" aria-labelledby="parts-title">
         <h2 id="parts-title">Practise a part</h2>
-        <ul className="home__part-list" role="list">
+        <ul className="part-list" role="list">
           {PARTS.map((entry) => (
             <li key={entry.part}>
-              <Link className="card card--link home__part" href={`/practice/${entry.part}`}>
-                <span className="home__part-number" aria-hidden="true">
+              <Link className="card card--link part-card" href={`/practice/${entry.part}`}>
+                <span className="part-card__number" aria-hidden="true">
                   {entry.part}
                 </span>
-                <span className="home__part-text">
-                  <span className="home__part-title">{entry.title}</span>
+                <span className="part-card__text">
+                  <span className="part-card__title">{entry.title}</span>
                   <span className="muted">{entry.blurb}</span>
                 </span>
-                <span className="home__part-length muted">{entry.length}</span>
+                <span className="part-card__length muted">{entry.length}</span>
               </Link>
             </li>
           ))}

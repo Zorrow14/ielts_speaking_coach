@@ -22,13 +22,21 @@
  * The clock is computed from Date.now(), not by accumulating interval ticks,
  * so a throttled or suspended timer in a backgrounded tab cannot make the
  * elapsed time drift - it corrects itself as soon as the tab is visible again.
+ *
+ * The live level meter (lib/use-level-meter.ts) is a progressive enhancement
+ * bolted on beside MediaRecorder, never in front of it: its AudioContext is
+ * prepared inside the tap, attached only after recording has started, and if
+ * any part of it fails the plain pulsing dot is shown instead. It reads
+ * loudness only; it stores and sends nothing.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import Icon from "./Icon";
 import {
   MAX_RECORDING_MS,
   formatClock,
   pickRecorderMime,
 } from "@/lib/audio";
+import { METER_BARS, useLevelMeter } from "@/lib/use-level-meter";
 
 type RecorderState = "idle" | "starting" | "recording" | "stopping";
 
@@ -55,12 +63,15 @@ export default function Recorder({
   softLimitMs,
   disabled = false,
   label = "Start recording",
+  onRecordingChange,
 }: {
   onComplete: (recording: Recording) => void;
   /** Point at which the UI nudges you to wrap up. Part 2 uses two minutes. */
   softLimitMs?: number;
   disabled?: boolean;
   label?: string;
+  /** Display only: lets the practice screen show a "Recording" state. */
+  onRecordingChange?: (recording: boolean) => void;
 }) {
   const [state, setState] = useState<RecorderState>("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -76,8 +87,11 @@ export default function Recorder({
   const announcedAtRef = useRef(0);
   /** Set before stop() so onstop knows why it is running. */
   const reasonRef = useRef<StopReason>("user");
+  const meter = useLevelMeter();
+  const { prepare: prepareMeter, attach: attachMeter, detach: detachMeter } = meter;
 
   const cleanUp = useCallback(() => {
+    detachMeter();
     if (tickRef.current) clearInterval(tickRef.current);
     if (hardStopRef.current) clearTimeout(hardStopRef.current);
     tickRef.current = null;
@@ -88,10 +102,15 @@ export default function Recorder({
     });
     streamRef.current = null;
     recorderRef.current = null;
-  }, []);
+  }, [detachMeter]);
 
   // Release the microphone if the component goes away mid-recording.
   useEffect(() => cleanUp, [cleanUp]);
+
+  // Display only. Calls a parent callback, never this component's own state.
+  useEffect(() => {
+    onRecordingChange?.(state === "recording");
+  }, [state, onRecordingChange]);
 
   const stop = useCallback((reason: StopReason = "user") => {
     const recorder = recorderRef.current;
@@ -148,12 +167,17 @@ export default function Recorder({
       return;
     }
 
+    // Inside the tap, before the first await: iOS Safari only lets an
+    // AudioContext run if it was started inside a user gesture. Never throws.
+    prepareMeter();
+
     setState("starting");
 
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (cause) {
+      detachMeter();
       setState("idle");
       setError(microphoneErrorMessage(cause));
       return;
@@ -229,6 +253,9 @@ export default function Recorder({
     recorder.start();
     setState("recording");
     setElapsedMs(0);
+    // Only now, with the recording already running, so nothing the meter
+    // does can stand between the learner and a working recorder.
+    attachMeter(stream);
 
     tickRef.current = setInterval(() => {
       // Derived from the start timestamp, so a throttled interval in a
@@ -244,14 +271,16 @@ export default function Recorder({
     // Hard stop. Keeps the upload inside the request body limit and matches
     // the plan's three-minute cap.
     hardStopRef.current = setTimeout(() => stop("hard_limit"), MAX_RECORDING_MS);
-  }, [cleanUp, onComplete, stop]);
+  }, [cleanUp, onComplete, stop, prepareMeter, attachMeter, detachMeter]);
 
   const recording = state === "recording";
   const pastSoftLimit = softLimitMs !== undefined && elapsedMs >= softLimitMs;
   const remainingMs = Math.max(0, MAX_RECORDING_MS - elapsedMs);
 
+  const progress = Math.min(1, elapsedMs / MAX_RECORDING_MS);
+
   return (
-    <div className="recorder">
+    <div className={`recorder${recording ? " recorder--recording" : ""}`}>
       {error ? (
         <p className="alert" role="alert">
           {error}
@@ -259,7 +288,7 @@ export default function Recorder({
       ) : null}
 
       {/*
-        The clock itself is aria-hidden and updates four times a second, which
+        The clock itself is aria-hidden and updates five times a second, which
         would be unusable with a screen reader. This region carries the same
         information every 30 seconds instead.
       */}
@@ -268,29 +297,77 @@ export default function Recorder({
       </p>
 
       {recording ? (
-        <>
-          <p className="recorder__clock" aria-hidden="true">
-            <span className="recorder__dot" />
-            {formatClock(elapsedMs)}
-            <span className="muted"> / hard stop in {formatClock(remainingMs)}</span>
+        <div className="recording">
+          <div className="recording__status">
+            <span className="recording__badge">
+              <span className="recorder__dot" aria-hidden="true" />
+              Recording
+            </span>
+            <span className="recording__clock" aria-hidden="true">
+              {formatClock(elapsedMs)}
+            </span>
+          </div>
+
+          {/* Shown only when the meter is genuinely running; otherwise the
+              pulsing dot above is the whole indicator. */}
+          {meter.active ? (
+            <div className="level-meter" aria-hidden="true">
+              {Array.from({ length: METER_BARS }, (_, index) => (
+                <span
+                  key={index}
+                  className="level-meter__bar"
+                  ref={(element) => {
+                    meter.barsRef.current[index] = element;
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <div className="recording__track" aria-hidden="true">
+            <span
+              className="recording__fill"
+              style={{ "--progress": progress.toFixed(4) } as CSSProperties}
+            />
+            {softLimitMs !== undefined ? (
+              <span
+                className="recording__marker"
+                style={{ "--at": (softLimitMs / MAX_RECORDING_MS).toFixed(4) } as CSSProperties}
+              />
+            ) : null}
+          </div>
+          <p className="recording__limit" aria-hidden="true">
+            Stops automatically in {formatClock(remainingMs)}
           </p>
+
           {pastSoftLimit ? (
             <p className="alert alert--soft" role="status">
               You have passed two minutes. Finish your point and stop.
             </p>
           ) : null}
-          <button type="button" className="button" onClick={() => stop("user")}>
+
+          <button
+            type="button"
+            className="button button--large button--block"
+            onClick={() => stop("user")}
+          >
+            <Icon name="stop" />
             Stop and submit
           </button>
-        </>
+        </div>
       ) : (
         <button
           type="button"
-          className="button"
+          className="record-button"
           onClick={start}
           disabled={disabled || state !== "idle"}
         >
-          {state === "starting" ? "Waiting for microphone..." : label}
+          <span className="record-button__disc" aria-hidden="true">
+            <Icon name="mic" />
+          </span>
+          <span className="record-button__label">
+            {state === "starting" ? "Waiting for microphone..." : label}
+          </span>
         </button>
       )}
     </div>
