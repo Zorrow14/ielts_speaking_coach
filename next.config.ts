@@ -73,6 +73,12 @@ const nextConfig: NextConfig = {
   // version to the browser.
   poweredByHeader: false,
 
+  // Do not generate AGENTS.md. Next 16 writes it on every `next dev` when it
+  // detects an AI coding agent, and it was deliberately removed from this
+  // repo (d75644e). With this off, `next dev` also deletes an existing
+  // generated AGENTS.md rather than recreating it.
+  agentRules: false,
+
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },
